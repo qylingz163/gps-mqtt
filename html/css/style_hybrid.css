@@ -519,6 +519,169 @@ body.dialog-open {
     cursor: pointer;
 }
 
+.console-window {
+    position: absolute;
+    right: 24px;
+    bottom: 24px;
+    width: 420px;
+    max-width: 90vw;
+    min-width: 280px;
+    min-height: 240px;
+    background: #0b1021;
+    color: #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(99, 102, 241, 0.35);
+    overflow: hidden;
+    resize: both;
+    z-index: 50;
+}
+
+.console-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.28), rgba(79, 70, 229, 0.32));
+    border-bottom: 1px solid rgba(99, 102, 241, 0.35);
+    cursor: move;
+    user-select: none;
+}
+
+.console-title {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.console-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.console-actions button {
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.console-actions button:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.console-actions button:active {
+    transform: scale(0.97);
+}
+
+.console-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 12px 12px;
+    box-sizing: border-box;
+    height: calc(100% - 48px);
+    overflow: hidden;
+}
+
+.console-window.is-collapsed .console-body {
+    display: none;
+}
+
+.console-window.is-collapsed {
+    min-height: auto;
+}
+
+.console-config {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 10px;
+    align-items: center;
+}
+
+.console-config label {
+    color: #a5b4fc;
+    font-size: 12px;
+}
+
+.console-config input {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    height: 32px;
+    box-sizing: border-box;
+}
+
+.console-output {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px;
+    font-family: "JetBrains Mono", "Roboto Mono", monospace;
+    font-size: 13px;
+    overflow-y: auto;
+    line-height: 1.5;
+    box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
+}
+
+.console-output .log-line {
+    margin: 0 0 6px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.console-output .log-line .timestamp {
+    color: #60a5fa;
+    margin-right: 8px;
+}
+
+.console-output .log-line.is-error {
+    color: #fca5a5;
+}
+
+.console-output .log-line.is-success {
+    color: #86efac;
+}
+
+.console-input-row {
+    display: grid;
+    grid-template-columns: 140px 1fr auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.console-input-row input,
+.console-input-row select {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    height: 36px;
+    box-sizing: border-box;
+}
+
+.console-input-row button {
+    background: linear-gradient(120deg, #6366f1, #4f46e5);
+    border: none;
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: transform 0.1s ease, opacity 0.2s ease;
+}
+
+.console-input-row button:active {
+    transform: scale(0.98);
+}
+
 .dialog-close:hover {
     color: #4b5563;
 }
