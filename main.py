@@ -34,6 +34,8 @@ MQTT_PORT: int = 1883
 MQTT_USERNAME: str = "device"
 MQTT_PASSWORD: str = "123456"
 MQTT_TOPIC: str = "student/location"
+MQTT_CONTROL_TOPIC: str = "student/location/control"
+MQTT_STATUS_TOPIC: str = "student/location/status"
 
 # 设备 ID
 DEVICE_ID: str = "um220_tracker_001"
@@ -66,6 +68,8 @@ class PublisherConfig:
     mqtt_user: str
     mqtt_pass: str
     mqtt_topic: str
+    mqtt_control_topic: str
+    mqtt_status_topic: str
     device_id: str
     history_file: Path
 
@@ -75,30 +79,31 @@ class GPSPublisher:
 
     def __init__(self, config: PublisherConfig):
         self.config = config
-        self.is_running = False
+        self.service_active = False
+        self.gps_streaming = False
         self.ser: Optional[serial.Serial] = None
         self.mqtt_client: Optional[mqtt.Client] = None
         self.history_file = config.history_file
         self.history_file.touch(exist_ok=True)
+        self._mqtt_connected = False
+        self._data_count = 0
 
     # ------------------------ 公共接口 ------------------------
     def run(self):
-        """阻塞式运行，直到异常或按 Ctrl+C 停止。"""
+        """阻塞式运行，支持 MQTT 控制启动/停止与状态查询。"""
 
-        if self.is_running:
-            logging.warning("GPS 发布器已在运行中")
+        if self.service_active:
+            logging.warning("GPS 服务已在运行中")
             return
 
-        self.is_running = True
+        self.service_active = True
         try:
-            self._initialize_serial()
             self._initialize_mqtt()
-            self.send_gps_commands()
+            self.start_streaming()
 
-            data_count = 0
-            while self.is_running:
+            while self.service_active:
                 try:
-                    if self.ser and self.ser.in_waiting > 0:
+                    if self.gps_streaming and self.ser and self.ser.in_waiting > 0:
                         line = self.ser.readline().decode("utf-8", errors="ignore")
                         if not line:
                             continue
@@ -108,14 +113,14 @@ class GPSPublisher:
                             continue
 
                         self.publish_gps_data(gps_data, self.config.mqtt_topic)
-                        data_count += 1
+                        self._data_count += 1
 
-                        if data_count % 10 == 0:
-                            logging.info("运行中... 已发送 %d 条数据", data_count)
+                        if self._data_count % 10 == 0:
+                            logging.info("运行中... 已发送 %d 条数据", self._data_count)
 
                 except serial.SerialException as exc:
                     logging.error("串口错误: %s", exc)
-                    break
+                    self.stop_streaming()
                 except Exception as exc:  # noqa: BLE001
                     logging.error("处理数据时出错: %s", exc)
 
@@ -126,8 +131,8 @@ class GPSPublisher:
         except Exception as exc:  # noqa: BLE001
             logging.error("GPS 发布器错误: %s", exc)
         finally:
+            self.service_active = False
             self.cleanup_resources()
-            self.is_running = False
 
     def publish_manual_location(
         self,
@@ -205,10 +210,23 @@ class GPSPublisher:
         if self.config.mqtt_user and self.config.mqtt_pass:
             self.mqtt_client.username_pw_set(self.config.mqtt_user, self.config.mqtt_pass)
 
-        self.mqtt_client.on_connect = lambda client, userdata, flags, rc: logging.info(
-            "MQTT 连接成功" if rc == 0 else "MQTT 连接失败，错误码: %s", rc
-        )
-        self.mqtt_client.on_disconnect = lambda client, userdata, rc: logging.info("MQTT 连接断开")
+        def _on_connect(client, userdata, flags, rc):
+            self._mqtt_connected = rc == 0
+            if rc == 0:
+                logging.info("MQTT 连接成功")
+                if self.config.mqtt_control_topic:
+                    client.subscribe(self.config.mqtt_control_topic)
+                    logging.info("已订阅控制主题: %s", self.config.mqtt_control_topic)
+            else:
+                logging.error("MQTT 连接失败，错误码: %s", rc)
+
+        def _on_disconnect(client, userdata, rc):
+            self._mqtt_connected = False
+            logging.info("MQTT 连接断开")
+
+        self.mqtt_client.on_connect = _on_connect
+        self.mqtt_client.on_disconnect = _on_disconnect
+        self.mqtt_client.on_message = self._on_control_message
 
         self.mqtt_client.connect(self.config.mqtt_host, self.config.mqtt_port, 60)
         self.mqtt_client.loop_start()
@@ -221,6 +239,36 @@ class GPSPublisher:
         return ports[0]
 
     # ---------------------- 核心功能 ------------------------
+    def start_streaming(self):
+        """开启串口读取并发送配置命令。"""
+
+        if self.gps_streaming:
+            logging.info("GPS 采集已在运行")
+            return
+
+        self._data_count = 0
+        try:
+            self._initialize_serial()
+            self.send_gps_commands()
+            self.gps_streaming = True
+            self.publish_status()
+            logging.info("GPS 采集已启动")
+        except Exception as exc:  # noqa: BLE001
+            logging.error("启动 GPS 采集失败: %s", exc)
+            self.gps_streaming = False
+
+    def stop_streaming(self):
+        """停止串口读取并关闭串口。"""
+
+        if not self.gps_streaming:
+            logging.info("GPS 采集已停止，无需重复停止")
+            return
+
+        self.gps_streaming = False
+        self._close_serial()
+        self.publish_status()
+        logging.info("GPS 采集已停止")
+
     def send_gps_commands(self):
         """向 GPS 模块发送配置命令。"""
 
@@ -466,13 +514,61 @@ class GPSPublisher:
         except Exception as exc:  # noqa: BLE001
             logging.error("发布 GPS 数据异常: %s", exc)
 
-    def cleanup_resources(self):
+    def publish_status(self):
+        """将设备状态发布到状态主题。"""
+
+        if not self.mqtt_client or not self.config.mqtt_status_topic:
+            return
+
+        status_payload = {
+            "message_type": "STATUS",
+            "device_id": self.config.device_id,
+            "running": self.gps_streaming,
+            "serial_open": bool(self.ser and self.ser.is_open),
+            "mqtt_connected": self._mqtt_connected,
+            "sent_count": self._data_count,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        try:
+            self.mqtt_client.publish(self.config.mqtt_status_topic, json.dumps(status_payload, ensure_ascii=False))
+            logging.info("已发布状态: %s", status_payload)
+        except Exception as exc:  # noqa: BLE001
+            logging.error("发布状态失败: %s", exc)
+
+    def _on_control_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
+        payload = msg.payload.decode("utf-8", errors="ignore").strip()
+        command = payload.lower()
+
+        try:
+            data = json.loads(payload)
+            command = str(data.get("command", command)).lower()
+        except json.JSONDecodeError:
+            pass
+
+        if command in {"start", "resume"}:
+            logging.info("收到 MQTT 控制命令: start")
+            self.start_streaming()
+        elif command in {"stop", "pause"}:
+            logging.info("收到 MQTT 控制命令: stop")
+            self.stop_streaming()
+        elif command in {"status", "state"}:
+            logging.info("收到 MQTT 控制命令: status")
+            self.publish_status()
+        else:
+            logging.warning("未知的控制命令: %s", payload)
+
+    def _close_serial(self):
         try:
             if self.ser and self.ser.is_open:
                 self.ser.close()
                 logging.info("串口连接已关闭")
         except Exception:  # noqa: BLE001
             pass
+
+    def cleanup_resources(self):
+        self.gps_streaming = False
+        self._close_serial()
 
         try:
             if self.mqtt_client:
@@ -493,6 +589,8 @@ def build_config_from_args() -> tuple[PublisherConfig, Optional[tuple[float, flo
     parser.add_argument("--mqtt-pass", help="MQTT 密码")
     parser.add_argument("--mqtt-topic", help="MQTT 主题")
     parser.add_argument("--device-id", help="设备 ID")
+    parser.add_argument("--mqtt-control-topic", help="MQTT 控制主题，用于 start/stop/status")
+    parser.add_argument("--mqtt-status-topic", help="MQTT 状态主题，用于发布设备状态")
     parser.add_argument("--manual-lng", type=float, help="手动发布经度")
     parser.add_argument("--manual-lat", type=float, help="手动发布纬度")
     parser.add_argument("--manual-speed", type=float, help="手动发布速度 (m/s)")
@@ -511,6 +609,8 @@ def build_config_from_args() -> tuple[PublisherConfig, Optional[tuple[float, flo
         mqtt_user=args.mqtt_user if args.mqtt_user is not None else MQTT_USERNAME,
         mqtt_pass=args.mqtt_pass if args.mqtt_pass is not None else MQTT_PASSWORD,
         mqtt_topic=args.mqtt_topic or MQTT_TOPIC,
+        mqtt_control_topic=args.mqtt_control_topic or MQTT_CONTROL_TOPIC,
+        mqtt_status_topic=args.mqtt_status_topic or MQTT_STATUS_TOPIC,
         device_id=args.device_id or DEVICE_ID,
         history_file=HISTORY_FILE,
     )
