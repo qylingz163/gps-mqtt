@@ -1,0 +1,252 @@
+html {
+    font-size: 15px;
+}
+
+body {
+    color: #918C8C;
+    background-color: #ecf0f1;
+    font-family: "微软雅黑";
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+#control {
+    width: 100%;
+    height: auto;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 10px;
+    box-sizing: border-box;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 15px;
+    z-index: 100;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.control-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#control input[type="text"] {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: 120px;
+    font-size: 14px;
+    background: white;
+    height: 32px;
+}
+
+#control button {
+    padding: 6px 12px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+    height: 32px;
+    min-width: 80px;
+}
+
+#control button:hover {
+    background-color: #45a049;
+}
+
+#control button.gps-btn {
+    background-color: #2196F3;
+}
+
+#control button.gps-btn:hover {
+    background-color: #0b7dda;
+}
+
+/* 围栏绘制模式按钮 */
+#control button.drawing-mode {
+    background-color: #FF9800;
+}
+
+#control button.drawing-mode:hover {
+    background-color: #F57C00;
+}
+
+/* 开发者信息 */
+#developer-info {
+    position: absolute;
+    bottom: 15px;
+    right: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    z-index: 100;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+#container {
+    width: 100%;
+    height: calc(100% - 80px);
+    position: relative;
+}
+
+.amap-icon img {
+    width: 22px;
+    height: 34px;
+}
+
+/* 添加标记信息窗口样式 */
+.info-window {
+    padding: 8px;
+    font-size: 13px;
+    background: white;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.info-window h3 {
+    margin: 0 0 4px 0;
+    color: #333;
+    font-size: 14px;
+}
+
+.info-window p {
+    margin: 3px 0;
+    color: #666;
+    font-size: 12px;
+}
+
+/* 历史轨迹回放对话框样式 */
+#replayDialog {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 1000;
+    min-width: 400px;
+    max-width: 90%;
+}
+
+#replayDialog h3 {
+    margin-top: 0;
+    color: #333;
+    font-size: 18px;
+}
+
+#replayDialog label {
+    display: inline-block;
+    width: 100px;
+    color: #666;
+    font-size: 14px;
+}
+
+#replayDialog select,
+#replayDialog input[type="datetime-local"] {
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    width: 200px;
+}
+
+#replayDialog > div {
+    margin-bottom: 15px;
+}
+
+#replayDialog button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+#replayDialog button:first-of-type {
+    background: #4CAF50;
+    color: white;
+    margin-right: 10px;
+}
+
+#replayDialog button:first-of-type:hover {
+    background: #45a049;
+}
+
+#replayDialog button:last-of-type {
+    background: #999;
+    color: white;
+}
+
+#replayDialog button:last-of-type:hover {
+    background: #777;
+}
+
+/* 对话框遮罩层（可选） */
+#replayDialog::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.3);
+    z-index: -1;
+}
+
+/* 响应式设计 */
+@media screen and (max-width: 768px) {
+    #control {
+        padding: 8px;
+        gap: 10px;
+    }
+    
+    .control-group {
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    
+    #control input[type="text"] {
+        width: 100px;
+        padding: 5px 8px;
+        font-size: 13px;
+        height: 28px;
+    }
+    
+    #control button {
+        padding: 5px 10px;
+        font-size: 13px;
+        height: 28px;
+        min-width: 70px;
+    }
+    
+    #replayDialog {
+        min-width: 90%;
+        padding: 15px;
+    }
+    
+    #replayDialog label {
+        width: 80px;
+        font-size: 13px;
+    }
+    
+    #replayDialog select,
+    #replayDialog input[type="datetime-local"] {
+        width: calc(100% - 90px);
+    }
+}

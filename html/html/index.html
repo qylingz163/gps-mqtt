@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" type="text/css" href="css/style_hybrid.css">
+  <title>基于GPS/GIS的电子围栏监控系统 - 渤海大学</title>
+  <script type="text/javascript" src="https://webapi.amap.com/maps?v=2.0&key=294bf98ced0716d953c126da0a88995a" defer></script>
+  <!-- MQTT客户端库 -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js" defer></script>
+</head>
+
+<body>
+  <div id="control">
+    <div class="control-group">
+      <label>经度：</label>
+      <input type="text" id="position_lng" placeholder="请输入经度">
+      <label>纬度：</label>
+      <input type="text" id="position_lat" placeholder="请输入纬度">
+      <button onclick="addMarker()">跳转</button>  
+      <button onclick="addMarker2()">渤大</button>
+    </div>
+    
+    <div class="control-group">
+      <label>GPS经度:</label>
+      <input type="text" id="position_lng_gps" placeholder="请输入经度">
+      <label>GPS纬度：</label>
+      <input type="text" id="position_lat_gps" placeholder="请输入纬度">
+      <button class="gps-btn" onclick="addMarkerGPS()">GPS跳转</button>
+    </div>
+
+    <!-- MQTT 参数（已配置，自动连接） -->
+    <div class="control-group">
+      <label>MQTT状态：</label>
+      <span id="mqtt_status" style="color: #999;">未连接</span>
+      <button onclick="connectMQTTFromForm()">连接MQTT</button>
+      <button onclick="disconnectMQTT()">断开</button>
+    </div>
+    
+    <!-- 电子围栏控制 -->
+    <div class="control-group">
+      <span style="color:#333;">围栏：已固定为 渤海大学滨海校区</span>
+      <button onclick="startTracking()">开始跟踪</button>
+      <button onclick="stopTracking()">停止跟踪</button>
+    </div>
+    
+    <!-- 轨迹回放控制 -->
+    <div class="control-group">
+      <button onclick="showReplayDialog()">轨迹回放</button>
+      <button onclick="pauseReplay()">暂停回放</button>
+      <button onclick="stopReplay()">停止回放</button>
+      <button onclick="clearHistoryTrack()">清除历史轨迹</button>
+    </div>
+    
+    <div class="control-group">
+      <button onclick="clearMarkers()">清除标记</button>
+      <button onclick="switchMapType('normal')">标准地图</button>
+      <button onclick="switchMapType('satellite')">卫星地图</button>
+      <button onclick="switchMapType('road')">路况地图</button>
+    </div>
+    
+   
+  </div>
+  
+  <!-- 开发者信息 -->
+  <div id="developer-info">
+    开发者：王志刚 罗小平<br>
+  </div>
+  
+  <div id="container"></div>
+
+  <!-- 离线提示条：30秒无位置数据时显示 -->
+  <div id="offline_banner" style="display:none; position: fixed; top: 0; left: 0; right: 0; z-index: 1001; background: #ffe9e9; color: #b71c1c; padding: 8px 12px; text-align: center; font-size: 14px; border-bottom: 1px solid #ffbdbd;">
+    设备未连接，显示最后一次位置数据；数据恢复后将自动更新
+  </div>
+
+  <!-- 历史轨迹回放对话框 -->
+  <div id="replayDialog">
+    <h3>历史轨迹回放</h3>
+    <div>
+      <label>设备ID：</label>
+      <select id="replayDeviceId">
+        <option value="all">所有设备</option>
+      </select>
+    </div>
+    <div>
+      <label>开始时间：</label>
+      <input type="datetime-local" id="replayStartTime">
+    </div>
+    <div>
+      <label>结束时间：</label>
+      <input type="datetime-local" id="replayEndTime">
+    </div>
+    <div style="text-align: right;">
+      <button onclick="confirmReplay()">开始回放</button>
+      <button onclick="closeReplayDialog()">取消</button>
+    </div>
+  </div>
+
+  <script src="js/mapShow_hybrid.js" defer></script>
+</body>
+</html>

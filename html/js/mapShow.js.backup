@@ -1,0 +1,227 @@
+var map;
+var tool;
+var marker;
+var jump_marker;
+var markers = []; // 存储所有标记
+var p_bhu_songshan = [121.119087, 41.086712]; //渤海大学松山校区
+var p_bhu_binhai = [121.061722, 40.88588]; //渤海大学滨海校区
+
+// 历史记录数组
+var historyPositions = [];
+
+window.onload = function() {
+    map = new AMap.Map("container", {
+        resizeEnable: true,
+        zoom: 12,
+        center: p_bhu_songshan, //地图中心点
+    });
+
+    //增加ToolBar插件
+    AMap.plugin(["AMap.ToolBar"],function(){    
+        tool = new AMap.ToolBar();
+        map.addControl(tool);    
+    });
+
+    //增加Scale插件
+    AMap.plugin(["AMap.Scale"],function(){    
+        var scale = new AMap.Scale();
+        map.addControl(scale);    
+    });
+
+    //增加Marker标记
+    marker = new AMap.Marker({
+        position: p_bhu_songshan,
+        icon: 'https://webapi.amap.com/theme/v1.3/markers/n/mark_bs.png',
+        map: map,
+        title: '当前位置'
+    });
+
+    //绑定地图移动事件
+    map.on("moveend", logMapInfo);
+
+    //增加jumpMarker标记
+    jump_marker = new AMap.Marker({
+        position: p_bhu_binhai,
+        icon: 'https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png',
+        map: map,
+        title: '目标位置'
+    });
+
+    // 添加右键菜单功能
+    map.on('rightclick', function(e) {
+        addCustomMarker(e.lnglat);
+    });
+    
+    // 初始化历史记录显示
+    updateHistoryList();
+}    
+
+//根据文本框的输入，跳转到该经纬度位置，并设置标记。
+function addMarker() {
+    var lng = document.getElementById("position_lng").value;
+    var lat = document.getElementById("position_lat").value;
+    
+    if (!lng || !lat) {
+        alert("请输入完整的经纬度信息！");
+        return;
+    }
+    
+    var position = [parseFloat(lng), parseFloat(lat)]; 
+    
+    // 保存到历史记录
+    saveToHistory(position, "自定义位置");
+    
+    map.setCenter(position);
+    jump_marker.setPosition(position);
+    
+    // 更新历史记录显示
+    updateHistoryList();
+}
+
+//根据文本框的输入，跳转到该GPS经纬度位置，并设置标记。
+function addMarkerGPS() {
+    var lng = document.getElementById("position_lng_gps").value;
+    var lat = document.getElementById("position_lat_gps").value;
+    
+    if (!lng || !lat) {
+        alert("请输入完整的GPS经纬度信息！");
+        return;
+    }
+    
+    var position = [parseFloat(lng), parseFloat(lat)]; 
+
+    //需要将坐标转换为GCJ-02坐标系
+    AMap.convertFrom(position, 'gps',function(status, result){
+        if(result.info === 'ok'){
+            var destPosition = result.locations[0];
+            console.log('转换后的坐标：', destPosition);
+            
+            // 保存到历史记录
+            saveToHistory([destPosition.lng, destPosition.lat], "GPS位置");
+            
+            map.setCenter(destPosition);
+            jump_marker.setPosition(destPosition);
+            
+            // 更新历史记录显示
+            updateHistoryList();
+        }else{
+            alert('GPS坐标转换失败！');
+            console.log(result);
+        }
+    });
+}
+
+//"渤大"按钮，跳转到渤海大学滨海校区
+function addMarker2() {
+    document.getElementById("position_lng").value = p_bhu_binhai[0];
+    document.getElementById("position_lat").value = p_bhu_binhai[1];      
+    addMarker();      
+    map.setZoom(14);
+}
+
+//显示地图层级与中心点信息
+function logMapInfo(){
+    var center = map.getCenter();
+    var position = [center.lng, center.lat];  
+    marker.setPosition(position);
+    document.getElementById("position_lng").value = position[0];
+    document.getElementById("position_lat").value = position[1];
+}
+
+// 添加自定义标记（右键点击地图）
+function addCustomMarker(lnglat) {
+    var marker = new AMap.Marker({
+        position: lnglat,
+        map: map,
+        draggable: true,
+        title: '自定义标记'
+    });
+    
+    // 添加信息窗口
+    var infoWindow = new AMap.InfoWindow({
+        content: '<div class="info-window">' +
+                 '<h3>自定义标记</h3>' +
+                 '<p>经度: ' + lnglat.lng + '</p>' +
+                 '<p>纬度: ' + lnglat.lat + '</p>' +
+                 '<button onclick="removeMarker(this)">删除</button>' +
+                 '</div>',
+        offset: new AMap.Pixel(0, -30)
+    });
+    
+    // 点击标记显示信息窗口
+    marker.on('click', function() {
+        infoWindow.open(map, marker.getPosition());
+    });
+    
+    // 保存标记引用
+    markers.push({
+        marker: marker,
+        infoWindow: infoWindow
+    });
+    
+    // 保存到历史记录
+    saveToHistory([lnglat.lng, lnglat.lat], "地图右键添加");
+    updateHistoryList();
+}
+
+// 删除标记
+function removeMarker(buttonElement) {
+    // 这里简化处理，实际项目中可能需要更复杂的逻辑
+    alert("标记已删除");
+}
+
+// 保存到历史记录
+function saveToHistory(position, name) {
+    var record = {
+        name: name,
+        lng: position[0],
+        lat: position[1],
+        time: new Date().toLocaleString()
+    };
+    
+    historyPositions.unshift(record); // 添加到开头
+    
+    // 限制历史记录数量
+    if (historyPositions.length > 10) {
+        historyPositions.pop();
+    }
+    
+    // 保存到localStorage
+    localStorage.setItem('mapHistory', JSON.stringify(historyPositions));
+}
+
+// 更新历史记录显示
+function updateHistoryList() {
+    // 如果有历史记录，则从localStorage加载
+    var stored = localStorage.getItem('mapHistory');
+    if (stored) {
+        historyPositions = JSON.parse(stored);
+    }
+    
+    // 这里可以更新页面上的历史记录列表（如果有的话）
+    console.log("历史记录:", historyPositions);
+}
+
+// 清除所有自定义标记
+function clearMarkers() {
+    for (var i = 0; i < markers.length; i++) {
+        markers[i].marker.setMap(null);
+    }
+    markers = [];
+    alert("所有自定义标记已清除");
+}
+
+// 切换地图类型
+function switchMapType(type) {
+    switch(type) {
+        case 'normal':
+            map.setLayers([new AMap.TileLayer()]);
+            break;
+        case 'satellite':
+            map.setLayers([new AMap.TileLayer.Satellite()]);
+            break;
+        case 'road':
+            map.setLayers([new AMap.TileLayer.RoadNet()]);
+            break;
+    }
+}

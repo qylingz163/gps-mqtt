@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>MQTT测试数据发送工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        input, select, textarea {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 300px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button.disconnect {
+            background: #f44336;
+        }
+        button.disconnect:hover {
+            background: #da190b;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            background: #e3f2fd;
+        }
+        #status.connected {
+            background: #c8e6c9;
+        }
+        #status.error {
+            background: #ffcdd2;
+        }
+        #log {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #4CAF50;
+            background: white;
+        }
+        .log-entry.error {
+            border-left-color: #f44336;
+        }
+    </style>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>MQTT测试数据发送工具</h1>
+        
+        <div class="form-group">
+            <label>MQTT服务器:</label>
+            <input type="text" id="mqttHost" placeholder="ws://localhost:8083/mqtt" value="ws://localhost:8083/mqtt">
+        </div>
+        
+        <div class="form-group">
+            <label>用户名:</label>
+            <input type="text" id="mqttUser" placeholder="可选">
+        </div>
+        
+        <div class="form-group">
+            <label>密码:</label>
+            <input type="password" id="mqttPass" placeholder="可选">
+        </div>
+        
+        <div class="form-group">
+            <label>主题:</label>
+            <input type="text" id="mqttTopic" value="student/location">
+        </div>
+        
+        <div class="form-group">
+            <button onclick="connectMQTT()">连接</button>
+            <button class="disconnect" onclick="disconnectMQTT()">断开</button>
+        </div>
+        
+        <div id="status">未连接</div>
+        
+        <hr>
+        
+        <h2>发送测试数据</h2>
+        
+        <div class="form-group">
+            <label>设备ID:</label>
+            <input type="text" id="deviceId" value="test_device_001">
+        </div>
+        
+        <div class="form-group">
+            <label>经度:</label>
+            <input type="number" id="longitude" value="121.119087" step="0.000001">
+        </div>
+        
+        <div class="form-group">
+            <label>纬度:</label>
+            <input type="number" id="latitude" value="41.086712" step="0.000001">
+        </div>
+        
+        <div class="form-group">
+            <label>发送间隔(秒):</label>
+            <input type="number" id="interval" value="2" min="1" max="60">
+        </div>
+        
+        <div class="form-group">
+            <button onclick="startAutoSend()">开始自动发送</button>
+            <button class="disconnect" onclick="stopAutoSend()">停止发送</button>
+            <button onclick="sendOnce()">发送一次</button>
+        </div>
+        
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let mqttClient = null;
+        let autoSendTimer = null;
+        let isAutoSending = false;
+
+        function addLog(message, isError = false) {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry' + (isError ? ' error' : '');
+            entry.textContent = new Date().toLocaleTimeString() + ' - ' + message;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(status, className = '') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = status;
+            statusEl.className = className;
+        }
+
+        function connectMQTT() {
+            const host = document.getElementById('mqttHost').value;
+            const user = document.getElementById('mqttUser').value;
+            const pass = document.getElementById('mqttPass').value;
+
+            if (!host) {
+                alert('请输入MQTT服务器地址');
+                return;
+            }
+
+            const options = {};
+            if (user) options.username = user;
+            if (pass) options.password = pass;
+
+            try {
+                mqttClient = mqtt.connect(host, options);
+
+                mqttClient.on('connect', function() {
+                    updateStatus('已连接', 'connected');
+                    addLog('MQTT连接成功: ' + host);
+                });
+
+                mqttClient.on('error', function(error) {
+                    updateStatus('连接错误', 'error');
+                    addLog('MQTT错误: ' + error, true);
+                });
+
+                mqttClient.on('close', function() {
+                    updateStatus('已断开', '');
+                    addLog('MQTT连接已断开');
+                });
+
+                updateStatus('连接中...', '');
+                addLog('正在连接MQTT服务器...');
+            } catch (e) {
+                updateStatus('连接失败', 'error');
+                addLog('连接失败: ' + e.message, true);
+            }
+        }
+
+        function disconnectMQTT() {
+            if (autoSendTimer) {
+                stopAutoSend();
+            }
+            if (mqttClient) {
+                mqttClient.end();
+                mqttClient = null;
+            }
+            updateStatus('未连接', '');
+            addLog('已断开连接');
+        }
+
+        function sendTestData() {
+            if (!mqttClient || !mqttClient.connected) {
+                alert('请先连接MQTT');
+                return;
+            }
+
+            const topic = document.getElementById('mqttTopic').value;
+            const deviceId = document.getElementById('deviceId').value;
+            const lng = parseFloat(document.getElementById('longitude').value);
+            const lat = parseFloat(document.getElementById('latitude').value);
+
+            // 添加一些随机偏移，模拟移动
+            const offsetLng = (Math.random() - 0.5) * 0.001;
+            const offsetLat = (Math.random() - 0.5) * 0.001;
+            const finalLng = lng + offsetLng;
+            const finalLat = lat + offsetLat;
+
+            const data = {
+                device_id: deviceId,
+                // 使用UNIX时间戳秒，便于后端保存为数字
+                timestamp: Math.floor(Date.now() / 1000),
+                longitude: finalLng,
+                latitude: finalLat,
+                time: new Date().toLocaleString('zh-CN'),
+                speed_ms: Math.random() * 10,
+                course: Math.random() * 360,
+                source: 'web-tester'
+            };
+
+            try {
+                mqttClient.publish(topic, JSON.stringify(data));
+                addLog(`已发送: 设备=${deviceId}, 经度=${finalLng.toFixed(6)}, 纬度=${finalLat.toFixed(6)}`);
+            } catch (e) {
+                addLog('发送失败: ' + e.message, true);
+            }
+        }
+
+        function sendOnce() {
+            sendTestData();
+        }
+
+        function startAutoSend() {
+            if (isAutoSending) {
+                return;
+            }
+            if (!mqttClient || !mqttClient.connected) {
+                alert('请先连接MQTT');
+                return;
+            }
+
+            isAutoSending = true;
+            const interval = parseInt(document.getElementById('interval').value) * 1000;
+            
+            // 立即发送一次
+            sendTestData();
+            
+            // 定时发送
+            autoSendTimer = setInterval(sendTestData, interval);
+            addLog(`开始自动发送，间隔 ${interval/1000} 秒`);
+        }
+
+        function stopAutoSend() {
+            if (autoSendTimer) {
+                clearInterval(autoSendTimer);
+                autoSendTimer = null;
+            }
+            isAutoSending = false;
+            addLog('已停止自动发送');
+        }
+
+        // 页面关闭时断开连接
+        window.addEventListener('beforeunload', function() {
+            disconnectMQTT();
+        });
+    </script>
+</body>
+</html>
+

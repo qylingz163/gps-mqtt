@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" type="text/css" href="css/style_hybrid.css">
+  <title>基于GPS/GIS的电子围栏监控系统 - 渤海大学</title>
+  <script type="text/javascript" src="https://webapi.amap.com/maps?v=2.0&key=294bf98ced0716d953c126da0a88995a" defer></script>
+  <!-- MQTT客户端库 -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js" defer></script>
+</head>
+
+<body>
+  <div id="offline_banner" role="status">
+    设备未连接，显示最后一次位置数据；数据恢复后将自动更新
+  </div>
+
+  <div class="app-layout">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h2>控制面板</h2>
+        <button id="sidebarCollapseBtn" class="sidebar-toggle-btn" type="button" aria-label="收起侧边栏">⮜</button>
+      </div>
+
+      <div id="control">
+        <div class="control-section">
+          <h3>MQTT 连接配置</h3>
+          <div class="control-group">
+            <label for="mqtt_protocol">协议</label>
+            <select id="mqtt_protocol">
+              <option value="ws://" selected>ws://</option>
+              <option value="wss://">wss://</option>
+            </select>
+            <label for="mqtt_host">地址</label>
+            <input type="text" id="mqtt_host" value="123.206.123.20" placeholder="服务器或IP">
+            <label for="mqtt_port">端口</label>
+            <input type="text" id="mqtt_port" value="8083" placeholder="端口">
+            <label for="mqtt_path">路径</label>
+            <input type="text" id="mqtt_path" value="/mqtt" placeholder="/mqtt">
+          </div>
+          <div class="control-group">
+            <label for="mqtt_topic">主题</label>
+            <input type="text" id="mqtt_topic" value="student/location" placeholder="topic">
+            <label for="mqtt_user">用户名</label>
+            <input type="text" id="mqtt_user" placeholder="可选">
+            <label for="mqtt_pass">密码</label>
+            <input type="password" id="mqtt_pass" placeholder="可选">
+            <label for="mqtt_client_id">Client ID</label>
+            <input type="text" id="mqtt_client_id" placeholder="留空自动生成">
+          </div>
+          <div class="control-group">
+            <button onclick="connectMQTTFromForm()">连接MQTT</button>
+            <button onclick="disconnectMQTT()">断开</button>
+            <span class="status-label">状态：<span id="mqtt_status">未连接</span></span>
+          </div>
+        </div>
+
+        <div class="control-section">
+          <h3>手动模拟点位</h3>
+          <div class="control-group">
+            <label for="manualLng">经度</label>
+            <input type="text" id="manualLng" value="121.061722">
+            <label for="manualLat">纬度</label>
+            <input type="text" id="manualLat" value="40.885880">
+            <label for="manualSpeed">速度(米/秒)</label>
+            <input type="text" id="manualSpeed" value="0">
+            <button onclick="addManualPoint()">手动添加</button>
+          </div>
+        </div>
+
+        <div class="control-section">
+          <h3>快速定位</h3>
+          <div class="control-group">
+            <label for="position_lng">经度</label>
+            <input type="text" id="position_lng" placeholder="请输入经度">
+            <label for="position_lat">纬度</label>
+            <input type="text" id="position_lat" placeholder="请输入纬度">
+            <button onclick="addMarker()">跳转</button>
+            <button onclick="addMarker2()">渤大</button>
+          </div>
+        </div>
+
+        <div class="control-section">
+          <h3>GPS 坐标校准</h3>
+          <div class="control-group">
+            <label for="position_lng_gps">GPS 经度</label>
+            <input type="text" id="position_lng_gps" placeholder="请输入经度">
+            <label for="position_lat_gps">GPS 纬度</label>
+            <input type="text" id="position_lat_gps" placeholder="请输入纬度">
+            <button class="gps-btn" onclick="addMarkerGPS()">GPS 跳转</button>
+          </div>
+        </div>
+
+        <div class="control-section">
+          <h3>围栏监控</h3>
+          <p class="section-note">围栏：已固定为 渤海大学滨海校区</p>
+          <div class="control-group">
+            <button onclick="startTracking()">开始跟踪</button>
+            <button onclick="stopTracking()">停止跟踪</button>
+            <span class="status-label">状态：<span id="tracking_status">已暂停</span></span>
+          </div>
+        </div>
+
+        <div class="control-section">
+          <h3>轨迹管理</h3>
+          <div class="control-group wrap">
+            <button onclick="showReplayDialog()">轨迹筛选</button>
+            <button onclick="pauseReplay()">暂停回放</button>
+            <button onclick="stopReplay()">停止回放</button>
+            <button onclick="clearHistoryTrack()">清除历史轨迹</button>
+            <button id="exportBtn">📥 导出轨迹</button>
+          </div>
+        </div>
+
+        <div class="control-section">
+          <h3>地图视图</h3>
+          <div class="control-group wrap">
+            <button onclick="clearMarkers()">清除标记</button>
+            <button onclick="switchMapType('normal')">标准地图</button>
+            <button onclick="switchMapType('satellite')">卫星地图</button>
+            <button onclick="switchMapType('road')">路况地图</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="developer-info">
+        开发者：王志刚 罗小平
+      </div>
+    </aside>
+
+    <main class="map-area">
+      <button id="sidebarExpandBtn" class="sidebar-toggle-btn" type="button" aria-label="展开侧边栏">☰ 控制面板</button>
+
+      <div class="map-main">
+        <div class="map-wrapper">
+          <div id="live_info" class="live-info" aria-live="polite">
+            <div class="live-info-header">
+              <span class="live-info-title">实时位置</span>
+              <span class="live-info-device" id="live_info_device">--</span>
+            </div>
+            <div class="live-info-body">
+              <div class="live-info-row">
+                <span class="label">经纬度</span>
+                <span class="value" id="live_info_coords">--</span>
+              </div>
+              <div class="live-info-row">
+                <span class="label">速度</span>
+                <span class="value" id="live_info_speed">--</span>
+              </div>
+            </div>
+            <div class="live-info-footer">
+              <span class="status-pill" id="live_info_fence">围栏状态 --</span>
+              <span class="live-info-time" id="live_info_time">--:--:--</span>
+            </div>
+          </div>
+          <div id="container" role="application" aria-label="电子围栏地图"></div>
+        </div>
+
+        <aside id="replayPanel" class="replay-panel">
+          <div class="replay-panel-header">
+            <h3>轨迹回放</h3>
+            <div class="replay-panel-actions">
+              <button id="toggleReplayMode" type="button">进入回放模式</button>
+              <button id="replayPanelCollapseBtn" class="sidebar-toggle-btn" type="button" aria-label="收起轨迹面板">⮞</button>
+            </div>
+          </div>
+
+          <div class="replay-panel-body replay-controls" aria-live="polite">
+            <div class="timeline-controls">
+              <div class="time-display">
+                <span id="currentTime">--:--:--</span>
+                <span>/</span>
+                <span id="totalTime">--:--:--</span>
+              </div>
+
+              <div class="slider-container">
+                <input type="range" id="timeSlider" min="0" max="0" value="0" class="slider">
+              </div>
+
+              <div class="playback-buttons">
+                <button id="playPauseBtn">▶️ 播放</button>
+                <button id="speedControl">1x</button>
+                <button id="resetBtn">⏮️ 重置</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <button id="replayPanelExpandBtn" class="sidebar-toggle-btn" type="button" aria-label="展开轨迹面板">轨迹回放</button>
+    </main>
+  </div>
+
+  <div id="replayDialog" role="dialog" aria-modal="true" aria-labelledby="replayDialogTitle">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <h3 id="replayDialogTitle">历史轨迹筛选</h3>
+        <button class="dialog-close" onclick="closeReplayDialog()" aria-label="关闭">×</button>
+      </div>
+      <div class="dialog-body">
+        <label for="replayDeviceId">设备ID</label>
+        <select id="replayDeviceId">
+          <option value="all">所有设备</option>
+        </select>
+        <label for="replayStartTime">开始时间</label>
+        <input type="datetime-local" id="replayStartTime">
+        <label for="replayEndTime">结束时间</label>
+        <input type="datetime-local" id="replayEndTime">
+      </div>
+      <div class="dialog-footer">
+        <button onclick="confirmReplay()">开始回放</button>
+        <button onclick="closeReplayDialog()">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/mapShow_hybrid.js" defer></script>
+</body>
+</html>
