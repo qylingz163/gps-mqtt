@@ -1244,23 +1244,34 @@ function setupConsoleWindow() {
   const windowEl = elements.consoleWindow;
   const headerEl = elements.consoleHeader;
   let isDragging = false;
-  let startX = 0;
-  let startY = 0;
-  let startLeft = 0;
-  let startTop = 0;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+  let widthSnapshot = 0;
+  let heightSnapshot = 0;
+  let activePointerId = null;
 
   const onPointerMove = (evt) => {
     if (!isDragging) {
       return;
     }
-    const deltaX = evt.clientX - startX;
-    const deltaY = evt.clientY - startY;
-    windowEl.style.left = `${startLeft + deltaX}px`;
-    windowEl.style.top = `${startTop + deltaY}px`;
+    const nextLeft = Math.min(
+      Math.max(0, evt.clientX - dragOffsetX),
+      Math.max(0, window.innerWidth - widthSnapshot)
+    );
+    const nextTop = Math.min(
+      Math.max(0, evt.clientY - dragOffsetY),
+      Math.max(0, window.innerHeight - heightSnapshot)
+    );
+    windowEl.style.left = `${nextLeft}px`;
+    windowEl.style.top = `${nextTop}px`;
   };
 
   const endDrag = () => {
     isDragging = false;
+    if (activePointerId !== null) {
+      headerEl.releasePointerCapture?.(activePointerId);
+      activePointerId = null;
+    }
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", endDrag);
     window.removeEventListener("pointercancel", endDrag);
@@ -1268,9 +1279,13 @@ function setupConsoleWindow() {
 
   headerEl.addEventListener("pointerdown", (evt) => {
     isDragging = true;
-    startX = evt.clientX;
-    startY = evt.clientY;
+    activePointerId = evt.pointerId;
+    headerEl.setPointerCapture?.(activePointerId);
     const rect = windowEl.getBoundingClientRect();
+    dragOffsetX = evt.clientX - rect.left;
+    dragOffsetY = evt.clientY - rect.top;
+    widthSnapshot = rect.width;
+    heightSnapshot = rect.height;
     windowEl.style.left = `${rect.left}px`;
     windowEl.style.top = `${rect.top}px`;
     windowEl.style.right = "auto";

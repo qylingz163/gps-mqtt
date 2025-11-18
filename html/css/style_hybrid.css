@@ -520,7 +520,7 @@ body.dialog-open {
 }
 
 .console-window {
-    position: absolute;
+    position: fixed;
     right: 24px;
     bottom: 24px;
     width: 420px;
