@@ -525,6 +525,7 @@ body.dialog-open {
     bottom: 24px;
     width: 420px;
     max-width: 90vw;
+    max-height: 85vh;
     min-width: 280px;
     min-height: 240px;
     background: #0b1021;
@@ -534,6 +535,8 @@ body.dialog-open {
     overflow: hidden;
     resize: both;
     z-index: 50;
+    display: flex;
+    flex-direction: column;
 }
 
 .console-header {
@@ -583,7 +586,7 @@ body.dialog-open {
     gap: 10px;
     padding: 10px 12px 12px;
     box-sizing: border-box;
-    height: calc(100% - 48px);
+    flex: 1;
     overflow: hidden;
 }
 
@@ -628,6 +631,7 @@ body.dialog-open {
     overflow-y: auto;
     line-height: 1.5;
     box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
+    overscroll-behavior: contain;
 }
 
 .console-output .log-line {
