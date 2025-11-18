@@ -1,10 +1,10 @@
 # GPS MQTT Publisher (CLI)
 
-一个面向树莓派/无图形环境的命令行 GPS 串口到 MQTT 发布脚本，支持通过 MQTT 控制启动/停止与状态查询，同时保留手动发布测试数据与历史记录写入功能。
+一个面向树莓派/无图形环境的命令行 GPS 串口到 MQTT 发布脚本，支持通过 MQTT 控制启动/停止、查询状态，并在独立结果主题返回每条命令的执行反馈，同时保留手动发布测试数据与历史记录写入功能。
 
 ## 功能概览
 - 从串口读取 GPS 模块输出（自动或手动指定串口），解析 NMEA 语句并发布到 MQTT 主题。
-- 通过控制主题接受 `start` / `stop` / `status` 命令，远程控制采集并发布设备状态消息。
+- 通过控制主题接受 `start` / `stop` / `status` / `help` 命令，远程控制采集；所有命令的执行结果会在命令结果主题返回。
 - 支持命令行一次性手动发布定位数据，便于无设备调试，并将发布的数据写入 `history.jsonl`。
 - 可在文件开头修改默认串口、MQTT、设备 ID、历史文件路径及手动发布默认值，或用命令行参数覆盖。
 
@@ -39,6 +39,7 @@ python3 main.py \
   --mqtt-topic student/location \
   --mqtt-control-topic student/location/control \
   --mqtt-status-topic student/location/status \
+  --mqtt-command-result-topic student/location/control/result \
   --device-id tracker_01
 ```
 
@@ -49,11 +50,27 @@ python3 main.py --manual --manual-lng 121.06 --manual-lat 40.88 --manual-speed 0
 ```
 若未提供手动参数，将使用文件开头的 `DEFAULT_MANUAL_*` 默认值。
 
-## MQTT 控制与状态
+## MQTT 控制、状态与结果
 - 控制主题（`MQTT_CONTROL_TOPIC`）接受以下消息（纯文本或 `{"command": "..."}` JSON 均可）：
   - `start` / `resume`：开启串口读取与发布。
   - `stop` / `pause`：停止串口读取。
-  - `status` / `state`：立即发布状态。
+  - `status` / `state`：立即发布当前设备状态并返回。
+  - `help`：返回所有可用命令及作用说明。
+- 每个命令（含未知命令）都会在命令结果主题（`MQTT_COMMAND_RESULT_TOPIC`）返回执行结果，字段示例：
+  ```json
+  {
+    "message_type": "COMMAND_RESULT",
+    "device_id": "um220_tracker_001",
+    "command": "start",
+    "success": true,
+    "message": "GPS 采集已启动",
+    "timestamp": "2024-01-01T00:00:00Z",
+    "status": {
+      "running": true,
+      "serial_open": true
+    }
+  }
+  ```
 - 状态主题（`MQTT_STATUS_TOPIC`）发布的 JSON 字段示例：
   ```json
   {

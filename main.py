@@ -36,6 +36,7 @@ MQTT_PASSWORD: str = "123456"
 MQTT_TOPIC: str = "student/location"
 MQTT_CONTROL_TOPIC: str = "student/location/control"
 MQTT_STATUS_TOPIC: str = "student/location/status"
+MQTT_COMMAND_RESULT_TOPIC: str = "student/location/control/result"
 
 # 设备 ID
 DEVICE_ID: str = "um220_tracker_001"
@@ -70,6 +71,7 @@ class PublisherConfig:
     mqtt_topic: str
     mqtt_control_topic: str
     mqtt_status_topic: str
+    mqtt_command_result_topic: str
     device_id: str
     history_file: Path
 
@@ -87,6 +89,12 @@ class GPSPublisher:
         self.history_file.touch(exist_ok=True)
         self._mqtt_connected = False
         self._data_count = 0
+        self.command_help = {
+            "start": "启动或恢复 GPS 采集",
+            "stop": "停止 GPS 采集",
+            "status": "返回设备状态",
+            "help": "列出支持的命令及作用",
+        }
 
     # ------------------------ 公共接口 ------------------------
     def run(self):
@@ -253,21 +261,24 @@ class GPSPublisher:
             self.gps_streaming = True
             self.publish_status()
             logging.info("GPS 采集已启动")
+            return True
         except Exception as exc:  # noqa: BLE001
             logging.error("启动 GPS 采集失败: %s", exc)
             self.gps_streaming = False
+            return False
 
     def stop_streaming(self):
         """停止串口读取并关闭串口。"""
 
         if not self.gps_streaming:
             logging.info("GPS 采集已停止，无需重复停止")
-            return
+            return True
 
         self.gps_streaming = False
         self._close_serial()
         self.publish_status()
         logging.info("GPS 采集已停止")
+        return True
 
     def send_gps_commands(self):
         """向 GPS 模块发送配置命令。"""
@@ -520,7 +531,43 @@ class GPSPublisher:
         if not self.mqtt_client or not self.config.mqtt_status_topic:
             return
 
-        status_payload = {
+        status_payload = self._build_status_payload()
+
+        try:
+            self.mqtt_client.publish(self.config.mqtt_status_topic, json.dumps(status_payload, ensure_ascii=False))
+            logging.info("已发布状态: %s", status_payload)
+        except Exception as exc:  # noqa: BLE001
+            logging.error("发布状态失败: %s", exc)
+
+    def publish_command_result(self, command: str, success: bool, message: str, data: Optional[Dict[str, Any]] = None):
+        """向命令结果主题发送执行结果，无论成功或失败。"""
+
+        if not self.mqtt_client or not self.config.mqtt_command_result_topic:
+            return
+
+        payload: Dict[str, Any] = {
+            "message_type": "COMMAND_RESULT",
+            "device_id": self.config.device_id,
+            "command": command,
+            "success": success,
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        if data:
+            payload.update(data)
+
+        try:
+            self.mqtt_client.publish(
+                self.config.mqtt_command_result_topic,
+                json.dumps(payload, ensure_ascii=False),
+            )
+            logging.info("已发布命令结果: %s", payload)
+        except Exception as exc:  # noqa: BLE001
+            logging.error("发布命令结果失败: %s", exc)
+
+    def _build_status_payload(self) -> Dict[str, Any]:
+        return {
             "message_type": "STATUS",
             "device_id": self.config.device_id,
             "running": self.gps_streaming,
@@ -529,12 +576,6 @@ class GPSPublisher:
             "sent_count": self._data_count,
             "timestamp": datetime.utcnow().isoformat(),
         }
-
-        try:
-            self.mqtt_client.publish(self.config.mqtt_status_topic, json.dumps(status_payload, ensure_ascii=False))
-            logging.info("已发布状态: %s", status_payload)
-        except Exception as exc:  # noqa: BLE001
-            logging.error("发布状态失败: %s", exc)
 
     def _on_control_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
         payload = msg.payload.decode("utf-8", errors="ignore").strip()
@@ -546,17 +587,33 @@ class GPSPublisher:
         except json.JSONDecodeError:
             pass
 
+        success = False
+        message = "未知的命令"
+        extra_data: Dict[str, Any] | None = None
+
         if command in {"start", "resume"}:
             logging.info("收到 MQTT 控制命令: start")
-            self.start_streaming()
+            success = self.start_streaming()
+            message = "GPS 采集已启动" if success else "启动失败，请检查串口或权限"
         elif command in {"stop", "pause"}:
             logging.info("收到 MQTT 控制命令: stop")
-            self.stop_streaming()
+            success = self.stop_streaming()
+            message = "GPS 采集已停止" if success else "停止操作未生效"
         elif command in {"status", "state"}:
             logging.info("收到 MQTT 控制命令: status")
+            success = True
+            extra_data = {"status": self._build_status_payload()}
             self.publish_status()
+            message = "已返回设备状态"
+        elif command == "help":
+            logging.info("收到 MQTT 控制命令: help")
+            success = True
+            extra_data = {"commands": self.command_help}
+            message = "命令列表已返回"
         else:
             logging.warning("未知的控制命令: %s", payload)
+
+        self.publish_command_result(command, success, message, extra_data)
 
     def _close_serial(self):
         try:
@@ -591,6 +648,7 @@ def build_config_from_args() -> tuple[PublisherConfig, Optional[tuple[float, flo
     parser.add_argument("--device-id", help="设备 ID")
     parser.add_argument("--mqtt-control-topic", help="MQTT 控制主题，用于 start/stop/status")
     parser.add_argument("--mqtt-status-topic", help="MQTT 状态主题，用于发布设备状态")
+    parser.add_argument("--mqtt-command-result-topic", help="MQTT 命令结果主题，用于接收命令执行反馈")
     parser.add_argument("--manual-lng", type=float, help="手动发布经度")
     parser.add_argument("--manual-lat", type=float, help="手动发布纬度")
     parser.add_argument("--manual-speed", type=float, help="手动发布速度 (m/s)")
@@ -611,6 +669,7 @@ def build_config_from_args() -> tuple[PublisherConfig, Optional[tuple[float, flo
         mqtt_topic=args.mqtt_topic or MQTT_TOPIC,
         mqtt_control_topic=args.mqtt_control_topic or MQTT_CONTROL_TOPIC,
         mqtt_status_topic=args.mqtt_status_topic or MQTT_STATUS_TOPIC,
+        mqtt_command_result_topic=args.mqtt_command_result_topic or MQTT_COMMAND_RESULT_TOPIC,
         device_id=args.device_id or DEVICE_ID,
         history_file=HISTORY_FILE,
     )
