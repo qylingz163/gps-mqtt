@@ -1215,7 +1215,10 @@ function appendConsoleLog(message, type = "info") {
   timestamp.textContent = new Date().toLocaleTimeString();
   line.appendChild(timestamp);
 
-  line.append(document.createTextNode(message));
+  const messageEl = document.createElement("pre");
+  messageEl.className = "message";
+  messageEl.textContent = message;
+  line.appendChild(messageEl);
 
   elements.consoleOutput.appendChild(line);
   elements.consoleOutput.scrollTop = elements.consoleOutput.scrollHeight;
@@ -1307,30 +1310,22 @@ function handleCommandResultMessage(payload) {
 
   try {
     const data = JSON.parse(messageText);
-    const pieces = [];
+    const summary = [];
     if (data.command) {
-      pieces.push(`命令: ${data.command}`);
+      summary.push(`命令: ${data.command}`);
     }
     if (typeof data.success === "boolean") {
-      pieces.push(data.success ? "执行成功" : "执行失败");
+      summary.push(data.success ? "执行成功" : "执行失败");
       level = data.success ? "success" : "error";
     }
     if (data.message) {
-      pieces.push(data.message);
+      summary.push(data.message);
     }
 
-    const extraKeys = Object.keys(data || {}).filter(
-      (key) => !["command", "success", "message"].includes(key)
-    );
-    if (extraKeys.length) {
-      const extras = extraKeys.reduce((acc, key) => {
-        acc[key] = data[key];
-        return acc;
-      }, {});
-      pieces.push(JSON.stringify(extras));
-    }
-
-    messageText = pieces.join(" | ") || messageText;
+    const formattedJSON = JSON.stringify(data, null, 2);
+    messageText = summary.length
+      ? `${summary.join(" | ")}\n${formattedJSON}`
+      : formattedJSON;
   } catch (error) {
     console.warn("解析命令结果失败", error);
   }
