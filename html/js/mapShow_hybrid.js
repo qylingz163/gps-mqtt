@@ -28,9 +28,14 @@ const fencePolygonPoints = [
   [121.0685, 40.891822]
 ];
 
+const DEFAULT_CONTROL_TOPIC = "student/location/control";
+const DEFAULT_RESULT_TOPIC = "student/location/control/result";
+
 const runtimeState = {
   isReplayMode: false,
-  currentTopic: "student/location"
+  currentTopic: "student/location",
+  controlTopic: DEFAULT_CONTROL_TOPIC,
+  commandResultTopic: DEFAULT_RESULT_TOPIC
 };
 
 const elements = {};
@@ -332,6 +337,8 @@ document.addEventListener("DOMContentLoaded", () => {
   handleResponsiveReplayPanel(true);
   startOfflineWatcher();
   startTracking();
+  setupConsoleWindow();
+  appendConsoleLog("命令终端已就绪，可在连接 MQTT 后下发控制命令。", "info");
 });
 
 function cacheElements() {
@@ -382,6 +389,18 @@ function cacheElements() {
   elements.liveInfoSpeed = document.getElementById("live_info_speed");
   elements.liveInfoFence = document.getElementById("live_info_fence");
   elements.liveInfoTime = document.getElementById("live_info_time");
+
+  elements.consoleWindow = document.getElementById("commandConsole");
+  elements.consoleHeader = document.getElementById("consoleDragHandle");
+  elements.consoleBody = document.getElementById("consoleBody");
+  elements.consoleOutput = document.getElementById("consoleOutput");
+  elements.consoleCommand = document.getElementById("consoleCommand");
+  elements.consolePreset = document.getElementById("consolePreset");
+  elements.consoleSendBtn = document.getElementById("consoleSendBtn");
+  elements.consoleClearBtn = document.getElementById("consoleClearBtn");
+  elements.consoleCollapseBtn = document.getElementById("consoleCollapseBtn");
+  elements.mqttControlTopic = document.getElementById("mqtt_control_topic");
+  elements.mqttResultTopic = document.getElementById("mqtt_result_topic");
 }
 
 function initMap() {
@@ -465,6 +484,37 @@ function setupEventListeners() {
     elements.replayPanelExpandBtn.addEventListener("click", () =>
       toggleReplayPanel(true)
     );
+  }
+
+  if (elements.consoleSendBtn) {
+    elements.consoleSendBtn.addEventListener("click", sendConsoleCommand);
+  }
+
+  if (elements.consoleCommand) {
+    elements.consoleCommand.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter") {
+        evt.preventDefault();
+        sendConsoleCommand();
+      }
+    });
+  }
+
+  if (elements.consolePreset && elements.consoleCommand) {
+    elements.consolePreset.addEventListener("change", (evt) => {
+      const value = evt.target.value || "";
+      if (value) {
+        elements.consoleCommand.value = value;
+      }
+      elements.consoleCommand.focus();
+    });
+  }
+
+  if (elements.consoleClearBtn) {
+    elements.consoleClearBtn.addEventListener("click", clearConsoleOutput);
+  }
+
+  if (elements.consoleCollapseBtn) {
+    elements.consoleCollapseBtn.addEventListener("click", toggleConsoleCollapse);
   }
 
   window.addEventListener("resize", () => {
@@ -1114,6 +1164,175 @@ function handleIncomingPoint(raw) {
   }
 }
 
+function sendConsoleCommand() {
+  const commandText = (elements.consoleCommand?.value || "").trim();
+  const preset = elements.consolePreset?.value || "";
+  const command = commandText || preset;
+
+  if (!command) {
+    appendConsoleLog("请输入要发送的命令", "error");
+    return;
+  }
+
+  if (!mqttClient || !mqttClient.connected) {
+    appendConsoleLog("MQTT 未连接，无法发送命令", "error");
+    return;
+  }
+
+  const controlTopic =
+    (elements.mqttControlTopic?.value || DEFAULT_CONTROL_TOPIC).trim() ||
+    DEFAULT_CONTROL_TOPIC;
+  const resultTopic =
+    (elements.mqttResultTopic?.value || DEFAULT_RESULT_TOPIC).trim() ||
+    DEFAULT_RESULT_TOPIC;
+
+  runtimeState.controlTopic = controlTopic;
+  runtimeState.commandResultTopic = resultTopic;
+
+  try {
+    mqttClient.publish(controlTopic, JSON.stringify({ command }));
+    appendConsoleLog(`已发送: ${command}`, "info");
+  } catch (error) {
+    appendConsoleLog(`发送失败: ${error?.message || error}`, "error");
+  }
+}
+
+function appendConsoleLog(message, type = "info") {
+  if (!elements.consoleOutput) {
+    return;
+  }
+
+  const line = document.createElement("div");
+  line.className = "log-line";
+  if (type === "error") {
+    line.classList.add("is-error");
+  } else if (type === "success") {
+    line.classList.add("is-success");
+  }
+
+  const timestamp = document.createElement("span");
+  timestamp.className = "timestamp";
+  timestamp.textContent = new Date().toLocaleTimeString();
+  line.appendChild(timestamp);
+
+  const messageEl = document.createElement("pre");
+  messageEl.className = "message";
+  messageEl.textContent = message;
+  line.appendChild(messageEl);
+
+  elements.consoleOutput.appendChild(line);
+  elements.consoleOutput.scrollTop = elements.consoleOutput.scrollHeight;
+}
+
+function clearConsoleOutput() {
+  if (elements.consoleOutput) {
+    elements.consoleOutput.innerHTML = "";
+  }
+}
+
+function toggleConsoleCollapse() {
+  if (!elements.consoleWindow || !elements.consoleCollapseBtn) {
+    return;
+  }
+  elements.consoleWindow.classList.toggle("is-collapsed");
+  const isCollapsed = elements.consoleWindow.classList.contains("is-collapsed");
+  elements.consoleCollapseBtn.textContent = isCollapsed ? "＋" : "—";
+}
+
+function setupConsoleWindow() {
+  if (!elements.consoleWindow || !elements.consoleHeader) {
+    return;
+  }
+
+  const windowEl = elements.consoleWindow;
+  const headerEl = elements.consoleHeader;
+  let isDragging = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+  let widthSnapshot = 0;
+  let heightSnapshot = 0;
+  let activePointerId = null;
+
+  const onPointerMove = (evt) => {
+    if (!isDragging) {
+      return;
+    }
+    const nextLeft = Math.min(
+      Math.max(0, evt.clientX - dragOffsetX),
+      Math.max(0, window.innerWidth - widthSnapshot)
+    );
+    const nextTop = Math.min(
+      Math.max(0, evt.clientY - dragOffsetY),
+      Math.max(0, window.innerHeight - heightSnapshot)
+    );
+    windowEl.style.left = `${nextLeft}px`;
+    windowEl.style.top = `${nextTop}px`;
+  };
+
+  const endDrag = () => {
+    isDragging = false;
+    if (activePointerId !== null) {
+      headerEl.releasePointerCapture?.(activePointerId);
+      activePointerId = null;
+    }
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointercancel", endDrag);
+  };
+
+  headerEl.addEventListener("pointerdown", (evt) => {
+    isDragging = true;
+    activePointerId = evt.pointerId;
+    headerEl.setPointerCapture?.(activePointerId);
+    const rect = windowEl.getBoundingClientRect();
+    dragOffsetX = evt.clientX - rect.left;
+    dragOffsetY = evt.clientY - rect.top;
+    widthSnapshot = rect.width;
+    heightSnapshot = rect.height;
+    windowEl.style.left = `${rect.left}px`;
+    windowEl.style.top = `${rect.top}px`;
+    windowEl.style.right = "auto";
+    windowEl.style.bottom = "auto";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+    evt.preventDefault();
+  });
+}
+
+function handleCommandResultMessage(payload) {
+  if (!payload) {
+    return;
+  }
+
+  let messageText = payload.toString();
+  let level = "info";
+
+  try {
+    const data = JSON.parse(messageText);
+    const summary = [];
+    if (data.command) {
+      summary.push(`命令: ${data.command}`);
+    }
+    if (typeof data.success === "boolean") {
+      summary.push(data.success ? "执行成功" : "执行失败");
+      level = data.success ? "success" : "error";
+    }
+    if (data.message) {
+      summary.push(data.message);
+    }
+
+    const formattedJSON = JSON.stringify(data, null, 2);
+    messageText = summary.length
+      ? `${summary.join(" | ")}\n${formattedJSON}`
+      : formattedJSON;
+  } catch (error) {
+    console.warn("解析命令结果失败", error);
+  }
+
+  appendConsoleLog(messageText, level);
+}
+
 function connectMQTTFromForm() {
   if (typeof mqtt === "undefined") {
     alert("MQTT 库尚未加载，请检查网络连接。");
@@ -1128,6 +1347,12 @@ function connectMQTTFromForm() {
   const username = (elements.mqttUser?.value || "").trim();
   const password = elements.mqttPass?.value || "";
   const clientIdInput = (elements.mqttClientId?.value || "").trim();
+  const controlTopicInput =
+    (elements.mqttControlTopic?.value || DEFAULT_CONTROL_TOPIC).trim() ||
+    DEFAULT_CONTROL_TOPIC;
+  const resultTopicInput =
+    (elements.mqttResultTopic?.value || DEFAULT_RESULT_TOPIC).trim() ||
+    DEFAULT_RESULT_TOPIC;
 
         if (!host) {
     alert("请输入MQTT服务器地址");
@@ -1140,6 +1365,8 @@ function connectMQTTFromForm() {
         }
 
   runtimeState.currentTopic = topic;
+  runtimeState.controlTopic = controlTopicInput;
+  runtimeState.commandResultTopic = resultTopicInput;
 
   const url = buildMqttUrl(protocol, host, port, path);
   const options = {
@@ -1169,15 +1396,23 @@ function connectMQTTFromForm() {
 
   mqttClient.on("connect", () => {
     setMqttStatus("已连接", "#52c41a");
-    mqttClient.subscribe(topic, (err) => {
-      if (err) {
-        console.warn("订阅主题失败", err);
-        alert(`订阅主题失败: ${topic}`);
-                }
-            });
-        });
+    const topics = [topic, runtimeState.commandResultTopic];
+    topics.forEach((subTopic) => {
+      mqttClient.subscribe(subTopic, (err) => {
+        if (err) {
+          console.warn("订阅主题失败", err);
+          alert(`订阅主题失败: ${subTopic}`);
+        }
+      });
+    });
+  });
 
-  mqttClient.on("message", (_, payload) => {
+  mqttClient.on("message", (incomingTopic, payload) => {
+    if (incomingTopic === runtimeState.commandResultTopic) {
+      handleCommandResultMessage(payload);
+      return;
+    }
+
     try {
       const data = JSON.parse(payload.toString());
       handleIncomingPoint(data);
