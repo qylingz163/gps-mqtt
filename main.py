@@ -196,19 +196,30 @@ class GPSPublisher:
 
     # ---------------------- 初始化流程 -----------------------
     def _initialize_serial(self):
+        available_ports = [port.device for port in serial.tools.list_ports.comports()]
         port = self.config.port
-        if not port:
+
+        if port:
+            if port not in available_ports:
+                suggestion = "，可能是大小写问题？" if any(p.lower() == port.lower() for p in available_ports) else ""
+                available = ", ".join(available_ports) or "无可用串口"
+                raise RuntimeError(f"指定的串口不存在: {port}（可用: {available}）{suggestion}")
+        else:
             port = self._auto_detect_port()
             logging.info("未指定串口，自动选择: %s", port)
 
-        self.ser = serial.Serial(
-            port=port,
-            baudrate=self.config.baudrate,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=1,
-        )
+        try:
+            self.ser = serial.Serial(
+                port=port,
+                baudrate=self.config.baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=1,
+            )
+        except serial.SerialException as exc:  # noqa: BLE001
+            available = ", ".join(available_ports) or "无可用串口"
+            raise RuntimeError(f"串口打开失败: {port}，错误: {exc}（可用: {available}）") from exc
 
         if not self.ser.is_open:
             raise RuntimeError("无法打开串口")
@@ -269,7 +280,7 @@ class GPSPublisher:
         except Exception as exc:  # noqa: BLE001
             logging.error("启动 GPS 采集失败: %s", exc)
             self.gps_streaming = False
-            self._last_start_error = str(exc)
+            self._last_start_error = f"{exc.__class__.__name__}: {exc}" if str(exc) else exc.__class__.__name__
             return False
 
     def stop_streaming(self):
