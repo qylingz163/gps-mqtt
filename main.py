@@ -342,12 +342,17 @@ class GPSPublisher:
             parts = data_body.split(",")
 
             nmea_type = parts[0]
-            if nmea_type == "GNRMC":
+            message_id = nmea_type[-3:]
+
+            if message_id == "RMC":
                 return self.parse_rmc(parts, device_id)
-            if nmea_type == "GNGLL":
+            if message_id == "GLL":
                 return self.parse_gll(parts, device_id)
-            if nmea_type == "GNGGA":
+            if message_id == "GGA":
                 return self.parse_gga(parts, device_id)
+
+            if nmea_type not in {"TXT", "GNTXT"}:
+                logging.debug("忽略未处理的 NMEA 类型: %s", nmea_type)
             return None
 
         except Exception as exc:  # noqa: BLE001
@@ -691,12 +696,16 @@ class GPSPublisher:
 
         if command in {"start", "resume"}:
             logging.info("收到 MQTT 控制命令: start")
-            success = self.start_streaming()
-            if success:
-                message = "GPS 采集已启动"
+            if self.gps_streaming:
+                success = True
+                message = "GPS 采集已在运行"
             else:
-                detail = self._last_start_error or "请检查串口或权限"
-                message = f"启动失败: {detail}"
+                success = self.start_streaming()
+                if success:
+                    message = "GPS 采集已启动"
+                else:
+                    detail = self._last_start_error or "请检查串口或权限"
+                    message = f"启动失败: {detail}"
         elif command in {"stop", "pause"}:
             logging.info("收到 MQTT 控制命令: stop")
             success = self.stop_streaming()
