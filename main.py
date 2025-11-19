@@ -114,13 +114,20 @@ class GPSPublisher:
 
             while self.service_active:
                 try:
-                    if self.gps_streaming and self.ser and self.ser.in_waiting > 0:
-                        line = self.ser.readline().decode("utf-8", errors="ignore")
+                    if self.gps_streaming and self.ser:
+                        line_bytes = self.ser.readline()
+                        if not line_bytes:
+                            continue
+
+                        line = line_bytes.decode("utf-8", errors="ignore").strip()
                         if not line:
                             continue
 
+                        logging.debug("收到原始 NMEA: %s", line)
+
                         gps_data = self.parse_nmea_sentence(line, self.config.device_id)
                         if not gps_data:
+                            logging.debug("未解析的 NMEA 数据: %s", line)
                             continue
 
                         self.publish_gps_data(gps_data, self.config.mqtt_topic)
