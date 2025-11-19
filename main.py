@@ -82,6 +82,8 @@ class GPSPublisher:
     """负责读取串口、解析 NMEA 并发布到 MQTT 的核心类。"""
 
     def __init__(self, config: PublisherConfig):
+        """初始化发布器，保存配置并准备运行所需的状态字段。"""
+
         self.config = config
         self.service_active = False
         self.gps_streaming = False
@@ -203,6 +205,8 @@ class GPSPublisher:
 
     # ---------------------- 初始化流程 -----------------------
     def _initialize_serial(self):
+        """打开配置的串口，校验可用设备并给出清晰的错误提示。"""
+
         available_ports = [port.device for port in serial.tools.list_ports.comports()]
         port = self.config.port
 
@@ -249,12 +253,16 @@ class GPSPublisher:
         logging.info("串口连接成功: %s", port)
 
     def _initialize_mqtt(self):
+        """建立 MQTT 连接并注册控制消息回调。"""
+
         self.mqtt_client = mqtt.Client()
 
         if self.config.mqtt_user and self.config.mqtt_pass:
             self.mqtt_client.username_pw_set(self.config.mqtt_user, self.config.mqtt_pass)
 
         def _on_connect(client, userdata, flags, rc):
+            """处理 MQTT 连接成功或失败的事件。"""
+
             self._mqtt_connected = rc == 0
             if rc == 0:
                 logging.info("MQTT 连接成功")
@@ -265,6 +273,8 @@ class GPSPublisher:
                 logging.error("MQTT 连接失败，错误码: %s", rc)
 
         def _on_disconnect(client, userdata, rc):
+            """处理 MQTT 断开事件并刷新连接状态。"""
+
             self._mqtt_connected = False
             logging.info("MQTT 连接断开")
 
@@ -277,6 +287,8 @@ class GPSPublisher:
         logging.info("MQTT 连接中: %s:%s", self.config.mqtt_host, self.config.mqtt_port)
 
     def _auto_detect_port(self) -> str:
+        """自动选择第一个可用串口，若无可用设备则抛出异常。"""
+
         ports = [port.device for port in serial.tools.list_ports.comports()]
         if not ports:
             raise RuntimeError("未检测到可用串口，请检查连接")
@@ -367,6 +379,8 @@ class GPSPublisher:
             return None
 
     def parse_rmc(self, parts: list[str], device_id: str) -> Optional[Dict[str, Any]]:
+        """解析 RMC 语句，提取定位、速度与日期时间等信息。"""
+
         if len(parts) < 12:
             return None
 
@@ -408,6 +422,8 @@ class GPSPublisher:
             return None
 
     def parse_gll(self, parts: list[str], device_id: str) -> Optional[Dict[str, Any]]:
+        """解析 GLL 语句，提取经纬度与时间，过滤无效状态。"""
+
         if len(parts) < 7:
             return None
 
@@ -435,6 +451,8 @@ class GPSPublisher:
             return None
 
     def parse_gga(self, parts: list[str], device_id: str) -> Optional[Dict[str, Any]]:
+        """解析 GGA 语句，返回卫星数量、精度与高度等信息。"""
+
         if len(parts) < 15:
             return None
 
@@ -468,6 +486,8 @@ class GPSPublisher:
             return None
 
     def dm_to_decimal(self, value: str, direction: str, is_longitude: bool = False) -> float:
+        """将度分格式的坐标转换为带符号的小数形式。"""
+
         try:
             if not value:
                 return 0.0
@@ -490,6 +510,8 @@ class GPSPublisher:
             return 0.0
 
     def append_history_file(self, payload: Dict[str, Any]):
+        """将解析后的坐标写入历史文件，便于轨迹回放。"""
+
         if not self.history_file:
             return
 
@@ -539,6 +561,8 @@ class GPSPublisher:
             logging.error("写入历史轨迹文件失败: %s", exc)
 
     def publish_gps_data(self, gps_data: Dict[str, Any], topic: str):
+        """将单条 GPS 数据发布到指定主题，并记录历史。"""
+
         if not self.mqtt_client or not gps_data:
             return
 
@@ -610,6 +634,8 @@ class GPSPublisher:
             logging.error("发布命令结果失败: %s", exc)
 
     def _build_status_payload(self) -> Dict[str, Any]:
+        """构造当前设备状态的字典，用于状态发布或命令回执。"""
+
         return {
             "message_type": "STATUS",
             "device_id": self.config.device_id,
@@ -645,6 +671,8 @@ class GPSPublisher:
         return info
 
     def _read_meminfo(self) -> Dict[str, Any]:
+        """从 /proc/meminfo 读取内存数据并转换为 MB。"""
+
         meminfo_path = Path("/proc/meminfo")
         if not meminfo_path.exists():
             return {}
@@ -688,6 +716,8 @@ class GPSPublisher:
             return ""
 
     def _on_control_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
+        """处理控制主题的指令消息并返回执行结果。"""
+
         payload = msg.payload.decode("utf-8", errors="ignore").strip()
         command = payload.lower()
 
@@ -734,6 +764,8 @@ class GPSPublisher:
         self.publish_command_result(command, success, message, extra_data)
 
     def _close_serial(self):
+        """安全关闭串口连接。"""
+
         try:
             if self.ser and self.ser.is_open:
                 self.ser.close()
@@ -742,6 +774,8 @@ class GPSPublisher:
             pass
 
     def cleanup_resources(self):
+        """退出时释放串口和 MQTT 资源。"""
+
         self.gps_streaming = False
         self._close_serial()
 
@@ -755,6 +789,8 @@ class GPSPublisher:
 
 
 def build_config_from_args() -> tuple[PublisherConfig, Optional[tuple[float, float, float]]]:
+    """解析命令行参数并返回配置与可选的手动发布参数。"""
+
     parser = argparse.ArgumentParser(description="GPS 串口到 MQTT 发布器（命令行版）")
     parser.add_argument("--port", help="串口名称，例如 /dev/ttyAMA0")
     parser.add_argument("--baud", type=int, help="串口波特率")
@@ -804,6 +840,8 @@ def build_config_from_args() -> tuple[PublisherConfig, Optional[tuple[float, flo
 
 
 def main():
+    """脚本入口，支持手动发布一次或启动常规服务。"""
+
     config, manual_args = build_config_from_args()
     publisher = GPSPublisher(config)
 
