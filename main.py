@@ -12,6 +12,8 @@ import argparse
 import contextlib
 import json
 import logging
+import os
+import socket
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -89,6 +91,7 @@ class GPSPublisher:
         self.history_file.touch(exist_ok=True)
         self._mqtt_connected = False
         self._data_count = 0
+        self._last_start_error: Optional[str] = None
         self.command_help = {
             "start": "启动或恢复 GPS 采集",
             "stop": "停止 GPS 采集",
@@ -193,19 +196,45 @@ class GPSPublisher:
 
     # ---------------------- 初始化流程 -----------------------
     def _initialize_serial(self):
+        available_ports = [port.device for port in serial.tools.list_ports.comports()]
         port = self.config.port
-        if not port:
+
+        if port:
+            if port not in available_ports:
+                suggestion = "，可能是大小写问题？" if any(p.lower() == port.lower() for p in available_ports) else ""
+                available = ", ".join(available_ports) or "无可用串口"
+                raise RuntimeError(f"指定的串口不存在: {port}（可用: {available}）{suggestion}")
+        else:
             port = self._auto_detect_port()
             logging.info("未指定串口，自动选择: %s", port)
 
-        self.ser = serial.Serial(
-            port=port,
-            baudrate=self.config.baudrate,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=1,
-        )
+        try:
+            self.ser = serial.Serial(
+                port=port,
+                baudrate=self.config.baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=1,
+            )
+        except serial.SerialException as exc:  # noqa: BLE001
+            available = ", ".join(available_ports) or "无可用串口"
+            original = getattr(exc, "original_exception", None)
+            errno = getattr(exc, "errno", None)
+            detail = str(exc) or "未知错误"
+
+            if original:
+                errno = getattr(original, "errno", errno)
+                if not detail:
+                    detail = str(original)
+
+            busy_hint = ""
+            if (errno == 16) or ("Device or resource busy" in detail) or ("Errno 16" in detail):
+                busy_hint = "，设备被其他程序占用（例如 minicom），请关闭占用后重试"
+            elif (errno == 13) or ("Permission denied" in detail) or ("Errno 13" in detail):
+                busy_hint = "，权限不足，请确认当前用户对串口有访问权限"
+
+            raise RuntimeError(f"串口打开失败: {port}，错误: {detail}{busy_hint}（可用: {available}）") from exc
 
         if not self.ser.is_open:
             raise RuntimeError("无法打开串口")
@@ -252,10 +281,11 @@ class GPSPublisher:
 
         if self.gps_streaming:
             logging.info("GPS 采集已在运行")
-            return
+            return True
 
         self._data_count = 0
         try:
+            self._last_start_error = None
             self._initialize_serial()
             self.send_gps_commands()
             self.gps_streaming = True
@@ -265,6 +295,7 @@ class GPSPublisher:
         except Exception as exc:  # noqa: BLE001
             logging.error("启动 GPS 采集失败: %s", exc)
             self.gps_streaming = False
+            self._last_start_error = f"{exc.__class__.__name__}: {exc}" if str(exc) else exc.__class__.__name__
             return False
 
     def stop_streaming(self):
@@ -575,7 +606,74 @@ class GPSPublisher:
             "mqtt_connected": self._mqtt_connected,
             "sent_count": self._data_count,
             "timestamp": datetime.utcnow().isoformat(),
+            "system_info": self._collect_system_info(),
         }
+
+    def _collect_system_info(self) -> Dict[str, Any]:
+        """收集设备基础信息（CPU、内存、IP 地址等）。"""
+
+        info: Dict[str, Any] = {
+            "cpu_cores": os.cpu_count(),
+        }
+
+        try:
+            load1, load5, load15 = os.getloadavg()
+            info["cpu_load"] = {"1m": round(load1, 2), "5m": round(load5, 2), "15m": round(load15, 2)}
+        except OSError:
+            pass
+
+        memory_info = self._read_meminfo()
+        if memory_info:
+            info["memory"] = memory_info
+
+        ip_address = self._get_local_ip()
+        if ip_address:
+            info["ip_address"] = ip_address
+
+        return info
+
+    def _read_meminfo(self) -> Dict[str, Any]:
+        meminfo_path = Path("/proc/meminfo")
+        if not meminfo_path.exists():
+            return {}
+
+        data: Dict[str, int] = {}
+        try:
+            for line in meminfo_path.read_text().splitlines():
+                if ":" not in line:
+                    continue
+                key, value = line.split(":", 1)
+                parts = value.strip().split()
+                if not parts:
+                    continue
+                # 数值单位以 kB 为主，这里转为 MB
+                try:
+                    kb_value = int(parts[0])
+                    data[key] = kb_value
+                except ValueError:
+                    continue
+
+            if not data:
+                return {}
+
+            total_kb = data.get("MemTotal", 0)
+            available_kb = data.get("MemAvailable", 0)
+            return {
+                "total_mb": round(total_kb / 1024, 2),
+                "available_mb": round(available_kb / 1024, 2),
+            }
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def _get_local_ip(self) -> str:
+        """尝试获取本地 IPv4 地址。"""
+
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect(("8.8.8.8", 80))
+                return sock.getsockname()[0]
+        except Exception:  # noqa: BLE001
+            return ""
 
     def _on_control_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
         payload = msg.payload.decode("utf-8", errors="ignore").strip()
@@ -594,7 +692,11 @@ class GPSPublisher:
         if command in {"start", "resume"}:
             logging.info("收到 MQTT 控制命令: start")
             success = self.start_streaming()
-            message = "GPS 采集已启动" if success else "启动失败，请检查串口或权限"
+            if success:
+                message = "GPS 采集已启动"
+            else:
+                detail = self._last_start_error or "请检查串口或权限"
+                message = f"启动失败: {detail}"
         elif command in {"stop", "pause"}:
             logging.info("收到 MQTT 控制命令: stop")
             success = self.stop_streaming()
