@@ -188,10 +188,10 @@ body.dialog-open {
     flex: 1;
     display: flex;
     align-items: stretch;
-    gap: 20px;
     padding: 24px;
     box-sizing: border-box;
     min-height: 0;
+    position: relative;
 }
 
 .map-wrapper {
@@ -329,17 +329,23 @@ body.dialog-open {
 }
 
 .replay-panel {
-    flex: 0 0 320px;
-    width: 320px;
+    position: absolute;
+    left: 32px;
+    bottom: 32px;
+    width: clamp(280px, 30vw, 420px);
     display: flex;
     flex-direction: column;
-    background: #ffffff;
-    border-radius: 16px;
-    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+    background: rgba(7, 11, 26, 0.88);
+    color: #e2e8f0;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 25px 65px rgba(2, 6, 23, 0.55);
     padding: 20px;
     box-sizing: border-box;
-    transition: flex-basis 0.25s ease, width 0.25s ease, padding 0.25s ease, opacity 0.25s ease, margin 0.25s ease;
+    transition: opacity 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
     overflow: hidden;
+    backdrop-filter: blur(12px);
+    z-index: 30;
 }
 
 .replay-panel-header {
@@ -354,7 +360,7 @@ body.dialog-open {
     margin: 0;
     font-size: 18px;
     font-weight: 600;
-    color: #1f2933;
+    color: #f8fafc;
 }
 
 .replay-panel-actions {
@@ -364,12 +370,13 @@ body.dialog-open {
 }
 
 #toggleReplayMode {
-    background-color: #52c41a;
-    color: white;
+    background-color: rgba(34, 197, 94, 0.25);
+    color: #bbf7d0;
+    border: 1px solid rgba(34, 197, 94, 0.4);
 }
 
 #toggleReplayMode:hover {
-    background-color: #73d13d;
+    background-color: rgba(34, 197, 94, 0.38);
 }
 
 .replay-panel-body {
@@ -401,7 +408,7 @@ body.dialog-open {
     text-align: center;
     font-family: "Roboto Mono", monospace;
     font-size: 14px;
-    color: #4a5568;
+    color: #cbd5f5;
 }
 
 .slider-container {
@@ -411,6 +418,33 @@ body.dialog-open {
 .slider {
     width: 100%;
     height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.35), rgba(14, 165, 233, 0.35));
+    border-radius: 999px;
+    outline: none;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #60a5fa;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 4px 12px rgba(96, 165, 250, 0.5);
+    cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #60a5fa;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 4px 12px rgba(96, 165, 250, 0.5);
+    cursor: pointer;
 }
 
 .playback-buttons {
@@ -422,25 +456,27 @@ body.dialog-open {
 
 .playback-buttons button {
     padding: 6px 14px;
-    border-radius: 4px;
-    border: none;
+    border-radius: 999px;
+    border: 1px solid rgba(96, 165, 250, 0.4);
     cursor: pointer;
-    background: #1890ff;
-    color: white;
+    background: rgba(37, 99, 235, 0.3);
+    color: #e0f2fe;
     font-size: 14px;
-    transition: background 0.2s ease;
+    transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 .playback-buttons button:hover {
-    background: #40a9ff;
+    background: rgba(37, 99, 235, 0.45);
+    border-color: rgba(125, 211, 252, 0.6);
 }
 
 #speedControl {
-    background: #52c41a;
+    background: rgba(16, 185, 129, 0.28);
+    color: white;
 }
 
 #speedControl:hover {
-    background: #73d13d;
+    background: rgba(16, 185, 129, 0.45);
 }
 
 .amap-icon img {
@@ -521,31 +557,33 @@ body.dialog-open {
 
 .console-window {
     position: fixed;
-    right: 24px;
-    bottom: 24px;
-    width: 420px;
-    max-width: 90vw;
+    right: 32px;
+    bottom: 32px;
+    width: clamp(320px, 32vw, 520px);
+    max-width: calc(100vw - 64px);
     max-height: 85vh;
     min-width: 280px;
     min-height: 240px;
-    background: #0b1021;
+    background: rgba(8, 13, 32, 0.92);
     color: #e2e8f0;
-    border-radius: 12px;
-    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(99, 102, 241, 0.35);
+    border-radius: 18px;
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    box-shadow: 0 28px 60px rgba(2, 6, 23, 0.6);
     overflow: hidden;
     resize: both;
     z-index: 50;
     display: flex;
     flex-direction: column;
+    backdrop-filter: blur(14px);
 }
 
 .console-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 12px;
-    background: linear-gradient(90deg, rgba(99, 102, 241, 0.28), rgba(79, 70, 229, 0.32));
-    border-bottom: 1px solid rgba(99, 102, 241, 0.35);
+    padding: 12px 16px;
+    background: linear-gradient(120deg, rgba(99, 102, 241, 0.35), rgba(14, 165, 233, 0.25));
+    border-bottom: 1px solid rgba(147, 197, 253, 0.35);
     cursor: move;
     user-select: none;
 }
@@ -564,7 +602,7 @@ body.dialog-open {
 
 .console-actions button {
     border: none;
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.16);
     color: #e2e8f0;
     padding: 6px 10px;
     border-radius: 6px;
@@ -925,33 +963,35 @@ body {
 }
 
 #toggleReplayMode {
-    background-color: rgba(34, 197, 94, 0.15);
-    color: #86efac;
+    background-color: rgba(34, 197, 94, 0.25);
+    color: #bbf7d0;
     border: 1px solid rgba(34, 197, 94, 0.4);
 }
 
 #toggleReplayMode:hover {
-    background-color: rgba(34, 197, 94, 0.25);
+    background-color: rgba(34, 197, 94, 0.38);
 }
 
 .playback-buttons button {
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
-    color: #e5edff;
-    font-size: 13px;
+    background: rgba(37, 99, 235, 0.3);
+    border: 1px solid rgba(96, 165, 250, 0.4);
+    color: #e0f2fe;
+    font-size: 14px;
 }
 
 .playback-buttons button:hover {
-    background: rgba(255, 255, 255, 0.22);
+    background: rgba(37, 99, 235, 0.45);
+    border-color: rgba(125, 211, 252, 0.6);
 }
 
 #speedControl {
-    background: rgba(14, 165, 233, 0.2);
-    color: #bae6fd;
+    background: rgba(16, 185, 129, 0.28);
+    color: #ecfeff;
 }
 
 #speedControl:hover {
-    background: rgba(14, 165, 233, 0.32);
+    background: rgba(16, 185, 129, 0.45);
 }
 
 #replayDialog {
@@ -977,23 +1017,19 @@ body.sidebar-collapsed #sidebarExpandBtn {
 
 #replayPanelExpandBtn {
     position: absolute;
-    right: 24px;
-    bottom: 24px;
+    left: 32px;
+    bottom: 32px;
     display: none;
     z-index: 25;
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.15);
-}
-
-body.replay-panel-collapsed .map-main {
-    gap: 0;
+    background: rgba(15, 23, 42, 0.8);
+    color: #e0f2fe;
+    box-shadow: 0 15px 30px rgba(2, 6, 23, 0.4);
+    border-radius: 30px;
 }
 
 body.replay-panel-collapsed .replay-panel {
-    flex: 0 0 0;
-    width: 0;
-    padding: 0;
     opacity: 0;
+    transform: translateY(24px) scale(0.98);
     pointer-events: none;
     box-shadow: none;
 }
@@ -1049,10 +1085,14 @@ body.replay-panel-collapsed #replayPanelExpandBtn {
     }
 
     .replay-panel {
+        position: static;
         width: 100%;
         flex: 0 0 auto;
         padding: 16px;
         max-width: 100%;
+        border-radius: 16px;
+        backdrop-filter: none;
+        color: inherit;
     }
 
     .live-info {
@@ -1066,12 +1106,14 @@ body.replay-panel-collapsed #replayPanelExpandBtn {
     }
 
     body.replay-panel-collapsed .replay-panel {
-        max-width: 0;
-        height: 0;
+        max-height: 0;
+        opacity: 0;
+        padding: 0;
+        margin: 0;
     }
 
     #replayPanelExpandBtn {
-        right: 16px;
+        left: 16px;
         bottom: 16px;
     }
 }
