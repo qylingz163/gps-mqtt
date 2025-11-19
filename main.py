@@ -219,7 +219,22 @@ class GPSPublisher:
             )
         except serial.SerialException as exc:  # noqa: BLE001
             available = ", ".join(available_ports) or "无可用串口"
-            raise RuntimeError(f"串口打开失败: {port}，错误: {exc}（可用: {available}）") from exc
+            original = getattr(exc, "original_exception", None)
+            errno = getattr(exc, "errno", None)
+            detail = str(exc) or "未知错误"
+
+            if original:
+                errno = getattr(original, "errno", errno)
+                if not detail:
+                    detail = str(original)
+
+            busy_hint = ""
+            if (errno == 16) or ("Device or resource busy" in detail) or ("Errno 16" in detail):
+                busy_hint = "，设备被其他程序占用（例如 minicom），请关闭占用后重试"
+            elif (errno == 13) or ("Permission denied" in detail) or ("Errno 13" in detail):
+                busy_hint = "，权限不足，请确认当前用户对串口有访问权限"
+
+            raise RuntimeError(f"串口打开失败: {port}，错误: {detail}{busy_hint}（可用: {available}）") from exc
 
         if not self.ser.is_open:
             raise RuntimeError("无法打开串口")
