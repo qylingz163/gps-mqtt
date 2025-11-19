@@ -191,6 +191,36 @@
     </main>
   </div>
 
+  <section id="commandConsole" class="console-window" aria-label="命令终端">
+    <header class="console-header" id="consoleDragHandle">
+      <div class="console-title">命令终端</div>
+      <div class="console-actions">
+        <button id="consoleCollapseBtn" type="button" aria-label="折叠终端">—</button>
+        <button id="consoleClearBtn" type="button" aria-label="清空输出">清屏</button>
+      </div>
+    </header>
+    <div class="console-body" id="consoleBody">
+      <div class="console-config">
+        <label for="mqtt_control_topic">控制主题</label>
+        <input type="text" id="mqtt_control_topic" value="student/location/control" aria-label="MQTT 控制主题">
+        <label for="mqtt_result_topic">结果主题</label>
+        <input type="text" id="mqtt_result_topic" value="student/location/control/result" aria-label="MQTT 结果主题">
+      </div>
+      <div class="console-output" id="consoleOutput" role="log" aria-live="polite"></div>
+      <div class="console-input-row">
+        <select id="consolePreset" aria-label="快速命令">
+          <option value="">自定义命令</option>
+          <option value="start">start</option>
+          <option value="stop">stop</option>
+          <option value="status">status</option>
+          <option value="help">help</option>
+        </select>
+        <input type="text" id="consoleCommand" placeholder="输入命令后回车或点击发送" aria-label="命令输入">
+        <button id="consoleSendBtn" type="button">发送</button>
+      </div>
+    </div>
+  </section>
+
   <div id="replayDialog" role="dialog" aria-modal="true" aria-labelledby="replayDialogTitle">
     <div class="dialog-card">
       <div class="dialog-header">
