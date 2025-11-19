@@ -31,6 +31,9 @@ const fencePolygonPoints = [
 const DEFAULT_CONTROL_TOPIC = "student/location/control";
 const DEFAULT_RESULT_TOPIC = "student/location/control/result";
 
+const TRACK_COLOR_SAFE = "#3b82f6";
+const TRACK_COLOR_ALERT = "#ef4444";
+
 const runtimeState = {
   isReplayMode: false,
   currentTopic: "student/location",
@@ -45,6 +48,7 @@ class TrackRecorder {
     this.checkFenceFn = checkFenceFn;
     this.maxPoints = maxPoints;
     this.history = [];
+    this.hasFenceBreach = false;
   }
 
   addPoint(raw) {
@@ -54,8 +58,14 @@ class TrackRecorder {
     }
 
     this.history.push(point);
+    if (!point.isInsideFence) {
+      this.hasFenceBreach = true;
+    }
     if (this.history.length > this.maxPoints) {
       this.history.shift();
+      if (!this.history.some((entry) => !entry.isInsideFence)) {
+        this.hasFenceBreach = false;
+      }
     }
     return point;
   }
@@ -66,11 +76,16 @@ class TrackRecorder {
 
   setHistory(points) {
     this.history = points.slice(-this.maxPoints);
+    this.hasFenceBreach = this.history.some((entry) => !entry.isInsideFence);
     return this.history;
   }
 
   getLatest() {
     return this.history.length ? this.history[this.history.length - 1] : null;
+  }
+
+  hasFenceViolation() {
+    return this.hasFenceBreach;
   }
 
   _normalize(raw) {
@@ -184,6 +199,12 @@ class PlaybackController {
       .slice(0, this.state.currentIndex + 1)
       .map((p) => [p.lng, p.lat]);
 
+    const hasBreach =
+      typeof this.recorder.hasFenceViolation === "function"
+        ? this.recorder.hasFenceViolation()
+        : this.recorder.history.some((entry) => !entry.isInsideFence);
+    const trackColor = hasBreach ? TRACK_COLOR_ALERT : TRACK_COLOR_SAFE;
+
     if (!this.marker) {
       this.marker = new AMap.Marker({
         position: [point.lng, point.lat],
@@ -201,14 +222,14 @@ class PlaybackController {
       this.trackLine = new AMap.Polyline({
         map: this.map,
         path,
-        strokeColor: point.isInsideFence ? "#FF4D4F" : "#1890ff",
+        strokeColor: trackColor,
         strokeWeight: 4,
         strokeOpacity: 0.85
       });
     } else {
       this.trackLine.setPath(path);
       this.trackLine.setOptions({
-        strokeColor: point.isInsideFence ? "#FF4D4F" : "#1890ff"
+        strokeColor: trackColor
       });
     }
 
@@ -220,7 +241,7 @@ class PlaybackController {
   }
 
   createMarkerContent(isInside) {
-    const color = isInside ? "#FF4D4F" : "#1890ff";
+    const color = isInside ? TRACK_COLOR_SAFE : TRACK_COLOR_ALERT;
     return `
       <div style="
         width: 20px;
