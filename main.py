@@ -91,6 +91,7 @@ class GPSPublisher:
         self.history_file.touch(exist_ok=True)
         self._mqtt_connected = False
         self._data_count = 0
+        self._last_start_error: Optional[str] = None
         self.command_help = {
             "start": "启动或恢复 GPS 采集",
             "stop": "停止 GPS 采集",
@@ -254,10 +255,11 @@ class GPSPublisher:
 
         if self.gps_streaming:
             logging.info("GPS 采集已在运行")
-            return
+            return True
 
         self._data_count = 0
         try:
+            self._last_start_error = None
             self._initialize_serial()
             self.send_gps_commands()
             self.gps_streaming = True
@@ -267,6 +269,7 @@ class GPSPublisher:
         except Exception as exc:  # noqa: BLE001
             logging.error("启动 GPS 采集失败: %s", exc)
             self.gps_streaming = False
+            self._last_start_error = str(exc)
             return False
 
     def stop_streaming(self):
@@ -663,7 +666,11 @@ class GPSPublisher:
         if command in {"start", "resume"}:
             logging.info("收到 MQTT 控制命令: start")
             success = self.start_streaming()
-            message = "GPS 采集已启动" if success else "启动失败，请检查串口或权限"
+            if success:
+                message = "GPS 采集已启动"
+            else:
+                detail = self._last_start_error or "请检查串口或权限"
+                message = f"启动失败: {detail}"
         elif command in {"stop", "pause"}:
             logging.info("收到 MQTT 控制命令: stop")
             success = self.stop_streaming()
