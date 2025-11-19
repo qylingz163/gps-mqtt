@@ -27,7 +27,7 @@ import serial.tools.list_ports
 
 # ====================== 可修改的参数 ======================
 # 串口配置
-SERIAL_PORT: str | None = None  # 示例："/dev/ttyAMA0"，为 None 时自动选择第一个可用串口
+SERIAL_PORT: str | None = "/dev/ttyUSB0"  # 示例："/dev/ttyAMA0"，为 None 时自动选择第一个可用串口
 SERIAL_BAUDRATE: int = 9600
 
 # MQTT 配置
