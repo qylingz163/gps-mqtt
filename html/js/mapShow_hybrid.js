@@ -8,7 +8,10 @@ let customMarkers = [];
 let trackingActive = false;
 let lastMessageTimestamp = 0;
 let offlineTimerId = null;
+let fenceAlertIntervalId = null;
+let fenceAlertHideTimeoutId = null;
 const OFFLINE_TIMEOUT = 30000;
+const FENCE_ALERT_INTERVAL = 3000;
 const DEFAULT_JUMP_POINT = [121.061722, 40.88588];
 const deviceIdSet = new Set();
 const sidebarState = {
@@ -31,6 +34,14 @@ const fencePolygonPoints = [
 const DEFAULT_CONTROL_TOPIC = "student/location/control";
 const DEFAULT_RESULT_TOPIC = "student/location/control/result";
 
+const TRACK_COLOR_SAFE = "#3b82f6";
+const TRACK_COLOR_ALERT = "#ef4444";
+
+const recordingState = {
+  active: false,
+  lastSession: []
+};
+
 const runtimeState = {
   isReplayMode: false,
   currentTopic: "student/location",
@@ -45,6 +56,7 @@ class TrackRecorder {
     this.checkFenceFn = checkFenceFn;
     this.maxPoints = maxPoints;
     this.history = [];
+    this.hasFenceBreach = false;
   }
 
   addPoint(raw) {
@@ -54,8 +66,14 @@ class TrackRecorder {
     }
 
     this.history.push(point);
+    if (!point.isInsideFence) {
+      this.hasFenceBreach = true;
+    }
     if (this.history.length > this.maxPoints) {
       this.history.shift();
+      if (!this.history.some((entry) => !entry.isInsideFence)) {
+        this.hasFenceBreach = false;
+      }
     }
     return point;
   }
@@ -66,11 +84,16 @@ class TrackRecorder {
 
   setHistory(points) {
     this.history = points.slice(-this.maxPoints);
+    this.hasFenceBreach = this.history.some((entry) => !entry.isInsideFence);
     return this.history;
   }
 
   getLatest() {
     return this.history.length ? this.history[this.history.length - 1] : null;
+  }
+
+  hasFenceViolation() {
+    return this.hasFenceBreach;
   }
 
   _normalize(raw) {
@@ -184,6 +207,14 @@ class PlaybackController {
       .slice(0, this.state.currentIndex + 1)
       .map((p) => [p.lng, p.lat]);
 
+    const hasBreach =
+      typeof this.recorder.hasFenceViolation === "function"
+        ? this.recorder.hasFenceViolation()
+        : this.recorder.history.some((entry) => !entry.isInsideFence);
+    const trackColor = hasBreach ? TRACK_COLOR_ALERT : TRACK_COLOR_SAFE;
+
+    setFenceAlertActive(!point.isInsideFence);
+
     if (!this.marker) {
       this.marker = new AMap.Marker({
         position: [point.lng, point.lat],
@@ -201,14 +232,14 @@ class PlaybackController {
       this.trackLine = new AMap.Polyline({
         map: this.map,
         path,
-        strokeColor: point.isInsideFence ? "#FF4D4F" : "#1890ff",
+        strokeColor: trackColor,
         strokeWeight: 4,
         strokeOpacity: 0.85
       });
     } else {
       this.trackLine.setPath(path);
       this.trackLine.setOptions({
-        strokeColor: point.isInsideFence ? "#FF4D4F" : "#1890ff"
+        strokeColor: trackColor
       });
     }
 
@@ -220,7 +251,7 @@ class PlaybackController {
   }
 
   createMarkerContent(isInside) {
-    const color = isInside ? "#FF4D4F" : "#1890ff";
+    const color = isInside ? TRACK_COLOR_SAFE : TRACK_COLOR_ALERT;
     return `
       <div style="
         width: 20px;
@@ -325,6 +356,8 @@ let playbackController = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
+  updateRecordStatus("未开始", "#999");
+  updateModeControls();
   resetLiveInfo();
   initMap();
   playbackController = new PlaybackController(trackRecorder, elements);
@@ -370,6 +403,9 @@ function cacheElements() {
   elements.exportBtn = document.getElementById("exportBtn");
   elements.toggleReplay = document.getElementById("toggleReplayMode");
   elements.mqttStatus = document.getElementById("mqtt_status");
+  elements.startRecordBtn = document.getElementById("startRecordBtn");
+  elements.stopRecordBtn = document.getElementById("stopRecordBtn");
+  elements.recordStatus = document.getElementById("record_status");
 
   elements.replayDialog = document.getElementById("replayDialog");
   elements.replayDeviceId = document.getElementById("replayDeviceId");
@@ -383,6 +419,7 @@ function cacheElements() {
   elements.replayPanelCollapseBtn = document.getElementById("replayPanelCollapseBtn");
   elements.replayPanelExpandBtn = document.getElementById("replayPanelExpandBtn");
   elements.offlineBanner = document.getElementById("offline_banner");
+  elements.fenceAlert = document.getElementById("fence_alert");
   elements.liveInfo = document.getElementById("live_info");
   elements.liveInfoDevice = document.getElementById("live_info_device");
   elements.liveInfoCoords = document.getElementById("live_info_coords");
@@ -460,6 +497,14 @@ function setupEventListeners() {
 
   if (elements.toggleReplay) {
     elements.toggleReplay.addEventListener("click", toggleReplayMode);
+  }
+
+  if (elements.startRecordBtn) {
+    elements.startRecordBtn.addEventListener("click", startRecordingSession);
+  }
+
+  if (elements.stopRecordBtn) {
+    elements.stopRecordBtn.addEventListener("click", stopRecordingSession);
   }
 
   if (elements.sidebarCollapseBtn) {
@@ -555,29 +600,43 @@ async function toggleReplayMode() {
     return;
   }
 
+  if (recordingState.active) {
+    alert("请先停止记录后再进入回放模式");
+    return;
+  }
+
   if (!runtimeState.isReplayMode) {
-    elements.toggleReplay.disabled = true;
-    const originalText = elements.toggleReplay.textContent;
-    elements.toggleReplay.textContent = "加载中...";
+    const sessionPoints = recordingState.lastSession.length
+      ? recordingState.lastSession
+      : trackRecorder.history;
 
-    const loaded = await loadHistoryFromFile();
-    elements.toggleReplay.disabled = false;
-
-    if (!loaded) {
-      elements.toggleReplay.textContent = originalText || "进入回放模式";
-      alert("history.jsonl 暂无可回放的数据");
+    if (!sessionPoints.length) {
+      elements.toggleReplay.disabled = true;
+      const originalText = elements.toggleReplay.textContent;
+      elements.toggleReplay.textContent = "加载中...";
+      const loaded = await loadHistoryFromFile();
+      elements.toggleReplay.disabled = false;
+      if (!loaded) {
+        elements.toggleReplay.textContent = originalText || "进入回放模式";
+        alert("请先完成一次记录，或将 history.jsonl 放置到前端目录下。");
         return;
+      }
+    } else {
+      trackRecorder.setHistory(sessionPoints);
     }
-    
+
     runtimeState.isReplayMode = true;
     elements.toggleReplay.textContent = "退出回放模式";
     playbackController.resetPlayback();
     playbackController.updateDisplay();
+    playbackController.refreshTimeline();
+    updateModeControls();
   } else {
     runtimeState.isReplayMode = false;
     elements.toggleReplay.textContent = "进入回放模式";
     playbackController.pausePlayback();
     playbackController.syncToLatest();
+    updateModeControls();
   }
 }
 
@@ -691,6 +750,49 @@ function setOfflineBanner(visible) {
   elements.offlineBanner.style.display = visible ? "block" : "none";
 }
 
+function triggerFenceAlertToast() {
+  if (!elements.fenceAlert) {
+    return;
+  }
+  elements.fenceAlert.classList.add("show");
+  if (fenceAlertHideTimeoutId) {
+    window.clearTimeout(fenceAlertHideTimeoutId);
+  }
+  fenceAlertHideTimeoutId = window.setTimeout(() => {
+    elements.fenceAlert.classList.remove("show");
+  }, 1600);
+}
+
+function hideFenceAlertToast() {
+  if (!elements.fenceAlert) {
+    return;
+  }
+  elements.fenceAlert.classList.remove("show");
+  if (fenceAlertHideTimeoutId) {
+    window.clearTimeout(fenceAlertHideTimeoutId);
+    fenceAlertHideTimeoutId = null;
+  }
+}
+
+function setFenceAlertActive(active) {
+  if (active) {
+    triggerFenceAlertToast();
+    if (!fenceAlertIntervalId) {
+      fenceAlertIntervalId = window.setInterval(
+        triggerFenceAlertToast,
+        FENCE_ALERT_INTERVAL
+      );
+    }
+    return;
+  }
+
+  if (fenceAlertIntervalId) {
+    window.clearInterval(fenceAlertIntervalId);
+    fenceAlertIntervalId = null;
+  }
+  hideFenceAlertToast();
+}
+
 function setTrackingStatus(text, color) {
   if (!elements.trackingStatus) {
     return;
@@ -699,6 +801,34 @@ function setTrackingStatus(text, color) {
   if (color) {
     elements.trackingStatus.style.color = color;
   }
+}
+
+function updateRecordStatus(text, color) {
+  if (!elements.recordStatus) {
+    return;
+  }
+  elements.recordStatus.textContent = text;
+  if (color) {
+    elements.recordStatus.style.color = color;
+  }
+}
+
+function updateModeControls() {
+  const isReplay = runtimeState.isReplayMode;
+  const recordingButtons = [elements.startRecordBtn, elements.stopRecordBtn];
+
+  recordingButtons.forEach((btn) => {
+    if (btn) {
+      btn.classList.toggle("hidden", isReplay);
+    }
+  });
+
+  const replayButtons = [elements.playPauseBtn, elements.speedControl, elements.resetBtn];
+  replayButtons.forEach((btn) => {
+    if (btn) {
+      btn.classList.toggle("hidden", !isReplay);
+    }
+  });
 }
 
 function resetLiveInfo() {
@@ -722,6 +852,41 @@ function resetLiveInfo() {
     elements.liveInfoFence.textContent = "围栏状态 --";
     elements.liveInfoFence.classList.remove("is-outside");
   }
+
+  setFenceAlertActive(false);
+}
+
+function startRecordingSession() {
+  recordingState.active = true;
+  recordingState.lastSession = [];
+  trackRecorder.setHistory([]);
+  playbackController.pausePlayback();
+  playbackController.refreshTimeline();
+  playbackController.state.currentIndex = 0;
+  if (playbackController.marker) {
+    playbackController.marker.setMap(null);
+    playbackController.marker = null;
+  }
+  if (playbackController.trackLine) {
+    playbackController.trackLine.setMap(null);
+    playbackController.trackLine = null;
+  }
+  runtimeState.isReplayMode = false;
+  if (elements.toggleReplay) {
+    elements.toggleReplay.textContent = "进入回放模式";
+  }
+  updateRecordStatus("记录中", "#52c41a");
+  updateModeControls();
+}
+
+function stopRecordingSession() {
+  recordingState.active = false;
+  recordingState.lastSession = trackRecorder.history.slice();
+  playbackController.pausePlayback();
+  playbackController.refreshTimeline();
+  const hasTrack = recordingState.lastSession.length > 0;
+  updateRecordStatus(hasTrack ? "已停止，可回放" : "已停止（无轨迹）", hasTrack ? "#10b981" : "#999");
+  updateModeControls();
 }
 
 function updateLiveInfo(point) {
@@ -785,6 +950,7 @@ function stopReplay() {
   if (elements.toggleReplay) {
     elements.toggleReplay.textContent = "进入回放模式";
   }
+  updateModeControls();
 }
 
 function clearHistoryTrack() {
@@ -792,7 +958,10 @@ function clearHistoryTrack() {
   playbackController.pausePlayback();
   playbackController.refreshTimeline();
   playbackController.state.currentIndex = 0;
+  recordingState.active = false;
+  recordingState.lastSession = [];
   resetLiveInfo();
+  setFenceAlertActive(false);
   if (playbackController.marker) {
     playbackController.marker.setMap(null);
     playbackController.marker = null;
@@ -804,9 +973,11 @@ function clearHistoryTrack() {
   runtimeState.isReplayMode = false;
   lastMessageTimestamp = 0;
   setOfflineBanner(false);
+  updateRecordStatus("未开始", "#999");
   if (elements.toggleReplay) {
     elements.toggleReplay.textContent = "进入回放模式";
   }
+  updateModeControls();
   alert("历史轨迹已清除");
 }
 
@@ -875,6 +1046,7 @@ function confirmReplay() {
       }
       playbackController.resetPlayback();
       playbackController.updateDisplay();
+      updateModeControls();
     })
     .finally(() => {
       closeReplayDialog();
@@ -1143,7 +1315,7 @@ function registerDeviceId(deviceId) {
 }
 
 function handleIncomingPoint(raw) {
-  const point = trackRecorder.addPoint(raw);
+  const point = trackRecorder.createPoint(raw);
   if (!point) {
     return;
   }
@@ -1152,15 +1324,14 @@ function handleIncomingPoint(raw) {
   setOfflineBanner(false);
   registerDeviceId(point.deviceId);
 
-  playbackController.refreshTimeline();
   updateLiveInfo(point);
 
-  if (!trackingActive) {
-    return;
-  }
-
-  if (!runtimeState.isReplayMode) {
-    playbackController.syncToLatest();
+  if (recordingState.active) {
+    trackRecorder.addPoint(point);
+    playbackController.refreshTimeline();
+    if (trackingActive && !runtimeState.isReplayMode) {
+      playbackController.syncToLatest();
+    }
   }
 }
 
@@ -1234,8 +1405,29 @@ function toggleConsoleCollapse() {
   if (!elements.consoleWindow || !elements.consoleCollapseBtn) {
     return;
   }
-  elements.consoleWindow.classList.toggle("is-collapsed");
-  const isCollapsed = elements.consoleWindow.classList.contains("is-collapsed");
+  const windowEl = elements.consoleWindow;
+  const headerHeight =
+    elements.consoleHeader?.getBoundingClientRect().height || undefined;
+  const isCollapsing = !windowEl.classList.contains("is-collapsed");
+
+  if (isCollapsing) {
+    const rect = windowEl.getBoundingClientRect();
+    windowEl.dataset.prevWidth = String(rect.width);
+    windowEl.dataset.prevHeight = String(rect.height);
+    windowEl.style.height = headerHeight ? `${headerHeight}px` : "auto";
+    windowEl.style.minHeight = "auto";
+    windowEl.style.maxHeight = "none";
+  } else {
+    const prevWidth = parseFloat(windowEl.dataset.prevWidth || "");
+    const prevHeight = parseFloat(windowEl.dataset.prevHeight || "");
+    windowEl.style.height = prevHeight ? `${prevHeight}px` : "";
+    windowEl.style.width = prevWidth ? `${prevWidth}px` : "";
+    windowEl.style.minHeight = "";
+    windowEl.style.maxHeight = "";
+  }
+
+  windowEl.classList.toggle("is-collapsed");
+  const isCollapsed = windowEl.classList.contains("is-collapsed");
   elements.consoleCollapseBtn.textContent = isCollapsed ? "＋" : "—";
 }
 
@@ -1281,6 +1473,11 @@ function setupConsoleWindow() {
   };
 
   headerEl.addEventListener("pointerdown", (evt) => {
+    // Skip drag initiation when clicking the action buttons
+    if (evt.target.closest(".console-actions button")) {
+      return;
+    }
+
     isDragging = true;
     activePointerId = evt.pointerId;
     headerEl.setPointerCapture?.(activePointerId);
