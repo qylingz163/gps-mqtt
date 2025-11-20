@@ -8,7 +8,10 @@ let customMarkers = [];
 let trackingActive = false;
 let lastMessageTimestamp = 0;
 let offlineTimerId = null;
+let lastFenceStatus = null;
+let fenceAlertTimerId = null;
 const OFFLINE_TIMEOUT = 30000;
+const FENCE_ALERT_DURATION = 10000;
 const DEFAULT_JUMP_POINT = [121.061722, 40.88588];
 const deviceIdSet = new Set();
 const sidebarState = {
@@ -383,6 +386,7 @@ function cacheElements() {
   elements.replayPanelCollapseBtn = document.getElementById("replayPanelCollapseBtn");
   elements.replayPanelExpandBtn = document.getElementById("replayPanelExpandBtn");
   elements.offlineBanner = document.getElementById("offline_banner");
+  elements.fenceAlert = document.getElementById("fence_alert");
   elements.liveInfo = document.getElementById("live_info");
   elements.liveInfoDevice = document.getElementById("live_info_device");
   elements.liveInfoCoords = document.getElementById("live_info_coords");
@@ -691,6 +695,48 @@ function setOfflineBanner(visible) {
   elements.offlineBanner.style.display = visible ? "block" : "none";
 }
 
+function showFenceAlert(message) {
+  if (!elements.fenceAlert) {
+    return;
+  }
+  elements.fenceAlert.textContent = message || "设备已越出围栏";
+  elements.fenceAlert.style.display = "block";
+  if (fenceAlertTimerId) {
+    window.clearTimeout(fenceAlertTimerId);
+  }
+  fenceAlertTimerId = window.setTimeout(() => {
+    hideFenceAlert();
+  }, FENCE_ALERT_DURATION);
+}
+
+function hideFenceAlert() {
+  if (!elements.fenceAlert) {
+    return;
+  }
+  elements.fenceAlert.style.display = "none";
+  fenceAlertTimerId = null;
+}
+
+function handleFenceAlert(point) {
+  if (!point) {
+    return;
+  }
+
+  const isOutside = point.isInsideFence === false;
+  const lngText = Number.isFinite(point.lng) ? point.lng.toFixed(6) : "--";
+  const latText = Number.isFinite(point.lat) ? point.lat.toFixed(6) : "--";
+  const deviceText = point.deviceId || "设备";
+  const timeText = point.displayTime || "--:--:--";
+
+  if (isOutside) {
+    showFenceAlert(`${deviceText} 于 ${timeText} 越出围栏，坐标 ${lngText}, ${latText}`);
+  } else if (lastFenceStatus === false) {
+    hideFenceAlert();
+  }
+
+  lastFenceStatus = isOutside ? false : true;
+}
+
 function setTrackingStatus(text, color) {
   if (!elements.trackingStatus) {
     return;
@@ -722,6 +768,9 @@ function resetLiveInfo() {
     elements.liveInfoFence.textContent = "围栏状态 --";
     elements.liveInfoFence.classList.remove("is-outside");
   }
+
+  lastFenceStatus = null;
+  hideFenceAlert();
 }
 
 function updateLiveInfo(point) {
@@ -755,6 +804,8 @@ function updateLiveInfo(point) {
     elements.liveInfoFence.textContent = inside ? "围栏内" : "围栏外";
     elements.liveInfoFence.classList.toggle("is-outside", !inside);
   }
+
+  handleFenceAlert(point);
 }
 
 function startTracking() {

@@ -328,6 +328,24 @@ body.dialog-open {
     box-shadow: 0 4px 12px rgba(244, 63, 94, 0.15);
 }
 
+#fence_alert {
+    display: none;
+    position: fixed;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 110;
+    background: #fff6e6;
+    color: #ad4e00;
+    padding: 10px 16px;
+    border: 1px solid #ffd591;
+    border-radius: 6px;
+    box-shadow: 0 10px 30px rgba(255, 149, 0, 0.2);
+    font-size: 14px;
+    max-width: 90vw;
+    text-align: center;
+}
+
 .replay-panel {
     flex: 0 0 320px;
     width: 320px;
