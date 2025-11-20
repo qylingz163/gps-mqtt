@@ -357,6 +357,7 @@ let playbackController = null;
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   updateRecordStatus("未开始", "#999");
+  updateModeControls();
   resetLiveInfo();
   initMap();
   playbackController = new PlaybackController(trackRecorder, elements);
@@ -629,11 +630,13 @@ async function toggleReplayMode() {
     playbackController.resetPlayback();
     playbackController.updateDisplay();
     playbackController.refreshTimeline();
+    updateModeControls();
   } else {
     runtimeState.isReplayMode = false;
     elements.toggleReplay.textContent = "进入回放模式";
     playbackController.pausePlayback();
     playbackController.syncToLatest();
+    updateModeControls();
   }
 }
 
@@ -810,6 +813,24 @@ function updateRecordStatus(text, color) {
   }
 }
 
+function updateModeControls() {
+  const isReplay = runtimeState.isReplayMode;
+  const recordingButtons = [elements.startRecordBtn, elements.stopRecordBtn];
+
+  recordingButtons.forEach((btn) => {
+    if (btn) {
+      btn.classList.toggle("hidden", isReplay);
+    }
+  });
+
+  const replayButtons = [elements.playPauseBtn, elements.speedControl, elements.resetBtn];
+  replayButtons.forEach((btn) => {
+    if (btn) {
+      btn.classList.toggle("hidden", !isReplay);
+    }
+  });
+}
+
 function resetLiveInfo() {
   if (!elements.liveInfo) {
     return;
@@ -855,6 +876,7 @@ function startRecordingSession() {
     elements.toggleReplay.textContent = "进入回放模式";
   }
   updateRecordStatus("记录中", "#52c41a");
+  updateModeControls();
 }
 
 function stopRecordingSession() {
@@ -864,6 +886,7 @@ function stopRecordingSession() {
   playbackController.refreshTimeline();
   const hasTrack = recordingState.lastSession.length > 0;
   updateRecordStatus(hasTrack ? "已停止，可回放" : "已停止（无轨迹）", hasTrack ? "#10b981" : "#999");
+  updateModeControls();
 }
 
 function updateLiveInfo(point) {
@@ -927,6 +950,7 @@ function stopReplay() {
   if (elements.toggleReplay) {
     elements.toggleReplay.textContent = "进入回放模式";
   }
+  updateModeControls();
 }
 
 function clearHistoryTrack() {
@@ -953,6 +977,7 @@ function clearHistoryTrack() {
   if (elements.toggleReplay) {
     elements.toggleReplay.textContent = "进入回放模式";
   }
+  updateModeControls();
   alert("历史轨迹已清除");
 }
 
@@ -1021,6 +1046,7 @@ function confirmReplay() {
       }
       playbackController.resetPlayback();
       playbackController.updateDisplay();
+      updateModeControls();
     })
     .finally(() => {
       closeReplayDialog();
