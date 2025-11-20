@@ -1255,8 +1255,29 @@ function toggleConsoleCollapse() {
   if (!elements.consoleWindow || !elements.consoleCollapseBtn) {
     return;
   }
-  elements.consoleWindow.classList.toggle("is-collapsed");
-  const isCollapsed = elements.consoleWindow.classList.contains("is-collapsed");
+  const windowEl = elements.consoleWindow;
+  const headerHeight =
+    elements.consoleHeader?.getBoundingClientRect().height || undefined;
+  const isCollapsing = !windowEl.classList.contains("is-collapsed");
+
+  if (isCollapsing) {
+    const rect = windowEl.getBoundingClientRect();
+    windowEl.dataset.prevWidth = String(rect.width);
+    windowEl.dataset.prevHeight = String(rect.height);
+    windowEl.style.height = headerHeight ? `${headerHeight}px` : "auto";
+    windowEl.style.minHeight = "auto";
+    windowEl.style.maxHeight = "none";
+  } else {
+    const prevWidth = parseFloat(windowEl.dataset.prevWidth || "");
+    const prevHeight = parseFloat(windowEl.dataset.prevHeight || "");
+    windowEl.style.height = prevHeight ? `${prevHeight}px` : "";
+    windowEl.style.width = prevWidth ? `${prevWidth}px` : "";
+    windowEl.style.minHeight = "";
+    windowEl.style.maxHeight = "";
+  }
+
+  windowEl.classList.toggle("is-collapsed");
+  const isCollapsed = windowEl.classList.contains("is-collapsed");
   elements.consoleCollapseBtn.textContent = isCollapsed ? "＋" : "—";
 }
 
@@ -1302,6 +1323,11 @@ function setupConsoleWindow() {
   };
 
   headerEl.addEventListener("pointerdown", (evt) => {
+    // Skip drag initiation when clicking the action buttons
+    if (evt.target.closest(".console-actions button")) {
+      return;
+    }
+
     isDragging = true;
     activePointerId = evt.pointerId;
     headerEl.setPointerCapture?.(activePointerId);
