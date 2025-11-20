@@ -8,7 +8,10 @@ let customMarkers = [];
 let trackingActive = false;
 let lastMessageTimestamp = 0;
 let offlineTimerId = null;
+let fenceAlertIntervalId = null;
+let fenceAlertHideTimeoutId = null;
 const OFFLINE_TIMEOUT = 30000;
+const FENCE_ALERT_INTERVAL = 3000;
 const DEFAULT_JUMP_POINT = [121.061722, 40.88588];
 const deviceIdSet = new Set();
 const sidebarState = {
@@ -204,6 +207,8 @@ class PlaybackController {
         ? this.recorder.hasFenceViolation()
         : this.recorder.history.some((entry) => !entry.isInsideFence);
     const trackColor = hasBreach ? TRACK_COLOR_ALERT : TRACK_COLOR_SAFE;
+
+    setFenceAlertActive(!point.isInsideFence);
 
     if (!this.marker) {
       this.marker = new AMap.Marker({
@@ -404,6 +409,7 @@ function cacheElements() {
   elements.replayPanelCollapseBtn = document.getElementById("replayPanelCollapseBtn");
   elements.replayPanelExpandBtn = document.getElementById("replayPanelExpandBtn");
   elements.offlineBanner = document.getElementById("offline_banner");
+  elements.fenceAlert = document.getElementById("fence_alert");
   elements.liveInfo = document.getElementById("live_info");
   elements.liveInfoDevice = document.getElementById("live_info_device");
   elements.liveInfoCoords = document.getElementById("live_info_coords");
@@ -712,6 +718,49 @@ function setOfflineBanner(visible) {
   elements.offlineBanner.style.display = visible ? "block" : "none";
 }
 
+function triggerFenceAlertToast() {
+  if (!elements.fenceAlert) {
+    return;
+  }
+  elements.fenceAlert.classList.add("show");
+  if (fenceAlertHideTimeoutId) {
+    window.clearTimeout(fenceAlertHideTimeoutId);
+  }
+  fenceAlertHideTimeoutId = window.setTimeout(() => {
+    elements.fenceAlert.classList.remove("show");
+  }, 1600);
+}
+
+function hideFenceAlertToast() {
+  if (!elements.fenceAlert) {
+    return;
+  }
+  elements.fenceAlert.classList.remove("show");
+  if (fenceAlertHideTimeoutId) {
+    window.clearTimeout(fenceAlertHideTimeoutId);
+    fenceAlertHideTimeoutId = null;
+  }
+}
+
+function setFenceAlertActive(active) {
+  if (active) {
+    triggerFenceAlertToast();
+    if (!fenceAlertIntervalId) {
+      fenceAlertIntervalId = window.setInterval(
+        triggerFenceAlertToast,
+        FENCE_ALERT_INTERVAL
+      );
+    }
+    return;
+  }
+
+  if (fenceAlertIntervalId) {
+    window.clearInterval(fenceAlertIntervalId);
+    fenceAlertIntervalId = null;
+  }
+  hideFenceAlertToast();
+}
+
 function setTrackingStatus(text, color) {
   if (!elements.trackingStatus) {
     return;
@@ -743,6 +792,8 @@ function resetLiveInfo() {
     elements.liveInfoFence.textContent = "围栏状态 --";
     elements.liveInfoFence.classList.remove("is-outside");
   }
+
+  setFenceAlertActive(false);
 }
 
 function updateLiveInfo(point) {
@@ -814,6 +865,7 @@ function clearHistoryTrack() {
   playbackController.refreshTimeline();
   playbackController.state.currentIndex = 0;
   resetLiveInfo();
+  setFenceAlertActive(false);
   if (playbackController.marker) {
     playbackController.marker.setMap(null);
     playbackController.marker = null;
