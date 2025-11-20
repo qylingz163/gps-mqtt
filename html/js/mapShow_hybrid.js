@@ -37,6 +37,11 @@ const DEFAULT_RESULT_TOPIC = "student/location/control/result";
 const TRACK_COLOR_SAFE = "#3b82f6";
 const TRACK_COLOR_ALERT = "#ef4444";
 
+const recordingState = {
+  active: false,
+  lastSession: []
+};
+
 const runtimeState = {
   isReplayMode: false,
   currentTopic: "student/location",
@@ -351,6 +356,7 @@ let playbackController = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
+  updateRecordStatus("未开始", "#999");
   resetLiveInfo();
   initMap();
   playbackController = new PlaybackController(trackRecorder, elements);
@@ -396,6 +402,9 @@ function cacheElements() {
   elements.exportBtn = document.getElementById("exportBtn");
   elements.toggleReplay = document.getElementById("toggleReplayMode");
   elements.mqttStatus = document.getElementById("mqtt_status");
+  elements.startRecordBtn = document.getElementById("startRecordBtn");
+  elements.stopRecordBtn = document.getElementById("stopRecordBtn");
+  elements.recordStatus = document.getElementById("record_status");
 
   elements.replayDialog = document.getElementById("replayDialog");
   elements.replayDeviceId = document.getElementById("replayDeviceId");
@@ -487,6 +496,14 @@ function setupEventListeners() {
 
   if (elements.toggleReplay) {
     elements.toggleReplay.addEventListener("click", toggleReplayMode);
+  }
+
+  if (elements.startRecordBtn) {
+    elements.startRecordBtn.addEventListener("click", startRecordingSession);
+  }
+
+  if (elements.stopRecordBtn) {
+    elements.stopRecordBtn.addEventListener("click", stopRecordingSession);
   }
 
   if (elements.sidebarCollapseBtn) {
@@ -582,24 +599,36 @@ async function toggleReplayMode() {
     return;
   }
 
+  if (recordingState.active) {
+    alert("请先停止记录后再进入回放模式");
+    return;
+  }
+
   if (!runtimeState.isReplayMode) {
-    elements.toggleReplay.disabled = true;
-    const originalText = elements.toggleReplay.textContent;
-    elements.toggleReplay.textContent = "加载中...";
+    const sessionPoints = recordingState.lastSession.length
+      ? recordingState.lastSession
+      : trackRecorder.history;
 
-    const loaded = await loadHistoryFromFile();
-    elements.toggleReplay.disabled = false;
-
-    if (!loaded) {
-      elements.toggleReplay.textContent = originalText || "进入回放模式";
-      alert("history.jsonl 暂无可回放的数据");
+    if (!sessionPoints.length) {
+      elements.toggleReplay.disabled = true;
+      const originalText = elements.toggleReplay.textContent;
+      elements.toggleReplay.textContent = "加载中...";
+      const loaded = await loadHistoryFromFile();
+      elements.toggleReplay.disabled = false;
+      if (!loaded) {
+        elements.toggleReplay.textContent = originalText || "进入回放模式";
+        alert("请先完成一次记录，或将 history.jsonl 放置到前端目录下。");
         return;
+      }
+    } else {
+      trackRecorder.setHistory(sessionPoints);
     }
-    
+
     runtimeState.isReplayMode = true;
     elements.toggleReplay.textContent = "退出回放模式";
     playbackController.resetPlayback();
     playbackController.updateDisplay();
+    playbackController.refreshTimeline();
   } else {
     runtimeState.isReplayMode = false;
     elements.toggleReplay.textContent = "进入回放模式";
@@ -771,6 +800,16 @@ function setTrackingStatus(text, color) {
   }
 }
 
+function updateRecordStatus(text, color) {
+  if (!elements.recordStatus) {
+    return;
+  }
+  elements.recordStatus.textContent = text;
+  if (color) {
+    elements.recordStatus.style.color = color;
+  }
+}
+
 function resetLiveInfo() {
   if (!elements.liveInfo) {
     return;
@@ -794,6 +833,37 @@ function resetLiveInfo() {
   }
 
   setFenceAlertActive(false);
+}
+
+function startRecordingSession() {
+  recordingState.active = true;
+  recordingState.lastSession = [];
+  trackRecorder.setHistory([]);
+  playbackController.pausePlayback();
+  playbackController.refreshTimeline();
+  playbackController.state.currentIndex = 0;
+  if (playbackController.marker) {
+    playbackController.marker.setMap(null);
+    playbackController.marker = null;
+  }
+  if (playbackController.trackLine) {
+    playbackController.trackLine.setMap(null);
+    playbackController.trackLine = null;
+  }
+  runtimeState.isReplayMode = false;
+  if (elements.toggleReplay) {
+    elements.toggleReplay.textContent = "进入回放模式";
+  }
+  updateRecordStatus("记录中", "#52c41a");
+}
+
+function stopRecordingSession() {
+  recordingState.active = false;
+  recordingState.lastSession = trackRecorder.history.slice();
+  playbackController.pausePlayback();
+  playbackController.refreshTimeline();
+  const hasTrack = recordingState.lastSession.length > 0;
+  updateRecordStatus(hasTrack ? "已停止，可回放" : "已停止（无轨迹）", hasTrack ? "#10b981" : "#999");
 }
 
 function updateLiveInfo(point) {
@@ -864,6 +934,8 @@ function clearHistoryTrack() {
   playbackController.pausePlayback();
   playbackController.refreshTimeline();
   playbackController.state.currentIndex = 0;
+  recordingState.active = false;
+  recordingState.lastSession = [];
   resetLiveInfo();
   setFenceAlertActive(false);
   if (playbackController.marker) {
@@ -877,6 +949,7 @@ function clearHistoryTrack() {
   runtimeState.isReplayMode = false;
   lastMessageTimestamp = 0;
   setOfflineBanner(false);
+  updateRecordStatus("未开始", "#999");
   if (elements.toggleReplay) {
     elements.toggleReplay.textContent = "进入回放模式";
   }
@@ -1216,7 +1289,7 @@ function registerDeviceId(deviceId) {
 }
 
 function handleIncomingPoint(raw) {
-  const point = trackRecorder.addPoint(raw);
+  const point = trackRecorder.createPoint(raw);
   if (!point) {
     return;
   }
@@ -1225,15 +1298,14 @@ function handleIncomingPoint(raw) {
   setOfflineBanner(false);
   registerDeviceId(point.deviceId);
 
-  playbackController.refreshTimeline();
   updateLiveInfo(point);
 
-  if (!trackingActive) {
-    return;
-  }
-
-  if (!runtimeState.isReplayMode) {
-    playbackController.syncToLatest();
+  if (recordingState.active) {
+    trackRecorder.addPoint(point);
+    playbackController.refreshTimeline();
+    if (trackingActive && !runtimeState.isReplayMode) {
+      playbackController.syncToLatest();
+    }
   }
 }
 
